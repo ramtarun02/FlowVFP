@@ -10,3 +10,5 @@ matplotlib
 gunicorn
 eventlet
 Werkzeug
+psutil
+pathlib2

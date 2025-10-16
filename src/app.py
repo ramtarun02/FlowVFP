@@ -21,11 +21,29 @@ import platform
 import subprocess
 import signal
 
+
+
 # Setup Python path for module imports
 current_dir = Path(__file__).parent.absolute()
 project_root = current_dir.parent
 sys.path.insert(0, str(current_dir))
 sys.path.insert(0, str(project_root))
+
+
+# Docker-specific path configuration
+if os.path.exists('/app'):
+    # Running in Docker container
+    project_root = Path('/app')
+    DATA_ROOT = project_root / 'data'
+elif os.environ.get('RENDER'):
+    # Running on Render with persistent disk
+    DATA_ROOT = Path('/opt/render/project/data')
+    project_root = current_dir.parent
+    WINE_PREFIX = Path('/opt/render/project/.wine')
+
+else:
+    # Development environment
+    DATA_ROOT = project_root / 'data'
 
 # Configure paths for new structure - CREATE DIRECTORIES FIRST
 UPLOAD_FOLDER = project_root / 'data' / 'uploads'
@@ -33,6 +51,11 @@ SIMULATIONS_FOLDER = project_root / 'data' / 'Simulations'
 TOOLS_FOLDER = project_root / 'tools'
 LOGS_FOLDER = project_root / 'logs'
 TEMP_FOLDER = project_root / 'data' / 'temp'
+
+# Ensure Wine prefix exists on Render
+if WINE_PREFIX:
+    WINE_PREFIX.mkdir(parents=True, exist_ok=True)
+
 
 # Ensure directories exist BEFORE setting up logging
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -47,29 +70,41 @@ print(f"  - Simulations folder: {SIMULATIONS_FOLDER}")
 print(f"  - Tools folder: {TOOLS_FOLDER}")
 print(f"  - Logs folder: {LOGS_FOLDER}")
 print(f"  - Temp folder: {TEMP_FOLDER}")
+if WINE_PREFIX:
+    print(f"  - Wine prefix: {WINE_PREFIX}")
 
-# Setup logging AFTER creating directories
+
+# Setup logging
 try:
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(LOGS_FOLDER / 'app.log'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
+    class SafeFormatter(logging.Formatter):
+        def format(self, record):
+            try:
+                return super().format(record)
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                record.msg = str(record.msg).encode('ascii', 'replace').decode('ascii')
+                return super().format(record)
+    
+    if os.environ.get('RENDER'):
+        # Production: Log to stdout (Render captures this)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(SafeFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        logging.basicConfig(level=logging.INFO, handlers=[console_handler])
+    else:
+        # Development: Log to both file and console
+        file_handler = logging.FileHandler(LOGS_FOLDER / 'app.log', encoding='utf-8')
+        file_handler.setFormatter(SafeFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(SafeFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
+    
     logger = logging.getLogger(__name__)
     logger.info("[SUCCESS] Logging system initialized successfully")
+    
 except Exception as e:
-    print(f"Warning: Could not set up file logging: {e}")
-    # Fallback to console logging only
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)]
-    )
+    print(f"Warning: Could not set up logging: {e}")
+    logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
-    logger.warning("File logging disabled, using console logging only")
+
 
 # Flask imports
 from flask import Flask, request, jsonify, send_file, render_template, flash, redirect, url_for
@@ -115,16 +150,29 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 # Initialize SocketIO with the configuration
 socketio = socket_config.init_app(app)
 
-# Initialize Wine on startup if running on Linux
+# Update the Wine initialization section
 if platform.system().lower() == 'linux':
-    logger.info("Detected Linux environment - initializing Wine...")
+    logger.info("Detected Linux environment - checking Wine...")
+    
+    # Add Docker-specific Wine initialization
+    if os.path.exists('/app/.wine'):
+        logger.info("Docker Wine environment detected")
+        os.environ['WINEPREFIX'] = '/app/.wine'
+        os.environ['DISPLAY'] = ':99'
+    
     if WineUtils.check_wine_installed():
-        if WineUtils.initialize_wine_prefix():
-            logger.info("Wine initialized successfully")
-        else:
-            logger.warning("Warning: Wine initialization failed")
+        logger.info("Wine is available")
+        # Additional Wine setup for Docker
+        try:
+            # Ensure Wine is properly initialized
+            result = subprocess.run(['wine', '--version'], 
+                                  capture_output=True, text=True, timeout=10)
+            logger.info(f"Wine version: {result.stdout.strip()}")
+        except Exception as e:
+            logger.warning(f"Wine version check failed: {e}")
     else:
         logger.warning("Warning: Wine not found - Windows executables may not work")
+
 
 def allowed_file(filename):
     """Check if the file has an allowed extension."""

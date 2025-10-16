@@ -1,12 +1,19 @@
 services:
   - type: web
-    name: vfp-backend
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT wsgi:app
+    name: vfp-python-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.9.18
       - key: FLASK_ENV
         value: production
+      - key: PYTHONPATH
+        value: /app/src:/app
+      - key: WINEPREFIX
+        value: /app/.wine
+      - key: DISPLAY
+        value: ":99"
+      - key: SECRET_KEY
+        generateValue: true
+    disk:
+      name: vfp-data
+      mountPath: /app/data

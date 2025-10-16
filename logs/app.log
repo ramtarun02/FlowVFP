@@ -6433,3 +6433,18 @@ AssertionError: write() before start_response
 2025-10-16 01:05:39,007 - engineio.server - INFO - 96nr5ykiVihLN52_AAAA: Received packet PONG data 
 2025-10-16 01:06:04,010 - engineio.server - INFO - 96nr5ykiVihLN52_AAAA: Sending packet PING data None
 2025-10-16 01:06:04,012 - engineio.server - INFO - 96nr5ykiVihLN52_AAAA: Received packet PONG data 
+2025-10-16 01:24:25,570 - app - INFO - [SUCCESS] Logging system initialized successfully
+2025-10-16 01:24:25,689 - app - INFO - [SUCCESS] Socket config imported successfully
+2025-10-16 01:24:26,311 - app - INFO - [SUCCESS] VFP processing modules imported successfully
+2025-10-16 01:24:26,348 - engineio.server - INFO - Server initialized for threading.
+2025-10-16 01:24:26,375 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-16 01:24:26,375 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-10-16 01:24:26,557 - engineio.server - INFO - WHOMkIp_ALGOec12AAAA: Sending packet OPEN data {'sid': 'WHOMkIp_ALGOec12AAAA', 'upgrades': [], 'pingTimeout': 300000, 'pingInterval': 25000}
+2025-10-16 01:24:26,558 - engineio.server - INFO - WHOMkIp_ALGOec12AAAA: Received request to upgrade to websocket
+2025-10-16 01:24:26,562 - engineio.server - INFO - WHOMkIp_ALGOec12AAAA: Upgrade to websocket successful
+2025-10-16 01:24:26,564 - engineio.server - INFO - WHOMkIp_ALGOec12AAAA: Received packet MESSAGE data 0
+2025-10-16 01:24:26,565 - app - INFO - Client connected
+2025-10-16 01:24:26,565 - socketio.server - INFO - emitting event "message" to YWJfyrLRpf1seqgGAAAB [/]
+2025-10-16 01:24:26,565 - engineio.server - INFO - WHOMkIp_ALGOec12AAAA: Sending packet MESSAGE data 2["message","WebSocket connection established"]
+2025-10-16 01:24:26,566 - engineio.server - INFO - WHOMkIp_ALGOec12AAAA: Sending packet MESSAGE data 0{"sid":"YWJfyrLRpf1seqgGAAAB"}
