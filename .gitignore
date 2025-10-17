@@ -50,14 +50,10 @@ ehthumbs.db
 Thumbs.db
 
 # Application specific
-logs/*.log
+logs/
 data/uploads/*
 data/temp/*
 data/Simulations/*
 !data/uploads/.gitkeep
 !data/temp/.gitkeep
 !data/Simulations/.gitkeep
-
-# Wine (not needed on Render)
-.wine/
-*.wine
