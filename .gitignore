@@ -51,6 +51,8 @@ Thumbs.db
 
 # Application specific
 logs/
+app.log
+logs/*.log
 data/uploads/*
 data/temp/*
 data/Simulations/*
