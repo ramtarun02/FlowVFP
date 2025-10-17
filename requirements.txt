@@ -12,3 +12,5 @@ eventlet
 Werkzeug
 psutil
 pathlib2
+secure-filename
+python-dotenv

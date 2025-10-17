@@ -20,6 +20,7 @@ import time
 import platform
 import subprocess
 import signal
+from datetime import datetime
 
 
 
@@ -29,21 +30,66 @@ project_root = current_dir.parent
 sys.path.insert(0, str(current_dir))
 sys.path.insert(0, str(project_root))
 
+# Azure App Service specific configuration
+def configure_for_azure():
+    """Configure paths and settings for Azure App Service"""
+    if os.environ.get('WEBSITE_SITE_NAME'):  # Azure App Service indicator
+        # Azure App Service paths
+        home_dir = os.environ.get('HOME', '/home')
+        site_root = os.environ.get('WEBSITE_SITE_ROOT', '/home/site/wwwroot')
+        
+        return {
+            'is_azure': True,
+            'project_root': Path(site_root),
+            'data_root': Path(home_dir) / 'data',  # Persistent storage
+            'temp_root': Path('/tmp')  # Temporary storage
+        }
+    else:
+        # Local development
+        return {
+            'is_azure': False,
+            'project_root': Path(__file__).parent.parent,
+            'data_root': Path(__file__).parent.parent / 'data',
+            'temp_root': Path(__file__).parent.parent / 'temp'
+        }
 
-# Docker-specific path configuration
-if os.path.exists('/app'):
-    # Running in Docker container
-    project_root = Path('/app')
-    DATA_ROOT = project_root / 'data'
-elif os.environ.get('RENDER'):
-    # Running on Render with persistent disk
-    DATA_ROOT = Path('/opt/render/project/data')
-    project_root = current_dir.parent
-    WINE_PREFIX = Path('/opt/render/project/.wine')
+# Update your existing path configuration
+azure_config = configure_for_azure()
 
+if azure_config['is_azure']:
+    print("Detected Azure App Service environment")
+    project_root = azure_config['project_root']
+    DATA_ROOT = azure_config['data_root']
+    TEMP_ROOT = azure_config['temp_root']
 else:
-    # Development environment
-    DATA_ROOT = project_root / 'data'
+    # Your existing Windows/development configuration
+    if os.path.exists('C:\\') and platform.system().lower() == 'windows':
+        # Windows environment (EC2 or local development)
+        if os.path.exists('C:\\inetpub\\wwwroot'):
+            project_root = Path('C:\\inetpub\\wwwroot\\VFP-Python')
+        else:
+            project_root = Path(__file__).parent.parent
+        DATA_ROOT = project_root / 'data'
+        print("Detected Windows environment")
+
+    elif os.path.exists('/app'):
+        # Docker container environment (fallback)
+        project_root = Path('/app')
+        DATA_ROOT = project_root / 'data'
+        print("Detected Docker environment")
+
+    elif os.environ.get('RENDER'):
+        # Render environment (fallback)
+        DATA_ROOT = Path('/opt/render/project/data')
+        project_root = current_dir.parent
+        print("Detected Render environment")
+    
+    else:
+        # Development environment
+        DATA_ROOT = project_root / 'data'
+        print("Detected development environment")
+
+
 
 # Configure paths for new structure - CREATE DIRECTORIES FIRST
 UPLOAD_FOLDER = project_root / 'data' / 'uploads'
@@ -51,11 +97,6 @@ SIMULATIONS_FOLDER = project_root / 'data' / 'Simulations'
 TOOLS_FOLDER = project_root / 'tools'
 LOGS_FOLDER = project_root / 'logs'
 TEMP_FOLDER = project_root / 'data' / 'temp'
-
-# Ensure Wine prefix exists on Render
-if WINE_PREFIX:
-    WINE_PREFIX.mkdir(parents=True, exist_ok=True)
-
 
 # Ensure directories exist BEFORE setting up logging
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -70,8 +111,6 @@ print(f"  - Simulations folder: {SIMULATIONS_FOLDER}")
 print(f"  - Tools folder: {TOOLS_FOLDER}")
 print(f"  - Logs folder: {LOGS_FOLDER}")
 print(f"  - Temp folder: {TEMP_FOLDER}")
-if WINE_PREFIX:
-    print(f"  - Wine prefix: {WINE_PREFIX}")
 
 
 # Setup logging
@@ -114,7 +153,7 @@ from flask_socketio import emit
 
 # Configuration imports
 try:
-    from config.socket_config import socket_config
+    from src.config.socket_config import socket_config
     logger.info("[SUCCESS] Socket config imported successfully")
 except ImportError as e:
     logger.error(f"ERROR: Could not import socket_config: {e}")
@@ -125,7 +164,6 @@ try:
     from modules.vfp_processing import runVFP as run
     from modules.vfp_processing import readGEO as rG
     from modules.vfp_processing.readVFP import readVIS
-    from modules.wine_utils import WineUtils, copy_files_to_folder
     logger.info("[SUCCESS] VFP processing modules imported successfully")
 except ImportError as e:
     logger.error(f"ERROR: Could not import VFP modules: {e}")
@@ -150,28 +188,8 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 # Initialize SocketIO with the configuration
 socketio = socket_config.init_app(app)
 
-# Update the Wine initialization section
-if platform.system().lower() == 'linux':
-    logger.info("Detected Linux environment - checking Wine...")
-    
-    # Add Docker-specific Wine initialization
-    if os.path.exists('/app/.wine'):
-        logger.info("Docker Wine environment detected")
-        os.environ['WINEPREFIX'] = '/app/.wine'
-        os.environ['DISPLAY'] = ':99'
-    
-    if WineUtils.check_wine_installed():
-        logger.info("Wine is available")
-        # Additional Wine setup for Docker
-        try:
-            # Ensure Wine is properly initialized
-            result = subprocess.run(['wine', '--version'], 
-                                  capture_output=True, text=True, timeout=10)
-            logger.info(f"Wine version: {result.stdout.strip()}")
-        except Exception as e:
-            logger.warning(f"Wine version check failed: {e}")
-    else:
-        logger.warning("Warning: Wine not found - Windows executables may not work")
+# Native Windows environment for execution
+logger.info("Using native Windows environment - no Wine required")
 
 
 def allowed_file(filename):
@@ -179,8 +197,31 @@ def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'GEO', 'geo', 'VFP', 'vfp', 'DAT', 'dat', 'MAP', 'map', 'VIS', 'vis'}
     return '.' in filename and filename.rsplit('.', 1)[1] in ALLOWED_EXTENSIONS
 
+def copy_files_to_folder(source_folder, destination_folder):
+    """Copy files from source folder to destination folder."""
+    try:
+        import shutil
+        source_path = Path(source_folder)
+        dest_path = Path(destination_folder)
+        
+        if not source_path.exists():
+            return f"Source folder {source_folder} does not exist"
+        
+        dest_path.mkdir(parents=True, exist_ok=True)
+        copied_files = []
+        
+        for file_path in source_path.iterdir():
+            if file_path.is_file():
+                dest_file = dest_path / file_path.name
+                shutil.copy2(file_path, dest_file)
+                copied_files.append(file_path.name)
+        
+        return f"Copied {len(copied_files)} files from {source_folder} to {destination_folder}"
+    except Exception as e:
+        return f"Error copying files: {str(e)}"
+
 def stream_bat_process_threaded(bat_file_path, cwd, args=None):
-    """Stream output from a .bat file execution with Wine support in a separate thread"""
+    """Stream output from a .bat file execution on Windows"""
     global current_process
     
     def run_bat_process():
@@ -201,8 +242,21 @@ def stream_bat_process_threaded(bat_file_path, cwd, args=None):
                 if args:
                     socket_config.emit_message(f"Arguments: {' '.join(args)}")
                 
-                # Use Wine utility for cross-platform batch execution
-                current_process = WineUtils.run_bat_with_wine(bat_file_path_abs, args, cwd)
+                # Native Windows batch execution
+                command = [bat_file_path_abs]
+                if args:
+                    command.extend(args)
+                
+                current_process = subprocess.Popen(
+                    command,
+                    cwd=cwd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                    shell=True
+                )
                 socket_config.set_current_process(current_process)
                 
                 if current_process is None:
@@ -235,15 +289,11 @@ def stream_bat_process_threaded(bat_file_path, cwd, args=None):
                     socket_config.emit_message('[DONE] Solver Run Complete')
                 else:
                     socket_config.emit_message(f'Solver completed with return code: {return_code}')
-                    if platform.system().lower() == 'linux':
-                        socket_config.emit_message('If using Wine, check Wine logs for Windows-specific errors')
                     socket_config.emit_message('Check the batch file for syntax errors or missing dependencies')
 
         except Exception as e:
             with app.app_context():
                 socket_config.emit_message(f"Error during BAT execution: {str(e)}")
-                if platform.system().lower() == 'linux':
-                    socket_config.emit_message("Wine-related error - check Wine configuration")
             logger.error(f"Full error details: {e}")
         finally:
             current_process = None
@@ -255,7 +305,7 @@ def stream_bat_process_threaded(bat_file_path, cwd, args=None):
     thread.start()
 
 def stream_process_threaded(command, cwd):
-    """Run process with Wine support in a separate thread to avoid blocking WebSocket"""
+    """Run process natively on Windows in a separate thread to avoid blocking WebSocket"""
     global current_process
     
     def run_process():
@@ -266,23 +316,16 @@ def stream_process_threaded(command, cwd):
                 socket_config.emit_message(f"Starting process: {' '.join(command)}")
                 socket_config.emit_message(f"Platform: {platform.system()}")
                 
-                # Check if this is a Windows executable on Linux
-                if (platform.system().lower() == 'linux' and 
-                    len(command) > 0 and command[0].lower().endswith('.exe')):
-                    
-                    socket_config.emit_message("Detected Windows executable - using Wine")
-                    current_process = WineUtils.run_exe_with_wine(command[0], command[1:], cwd)
-                else:
-                    # Standard subprocess for non-Windows executables
-                    current_process = subprocess.Popen(
-                        command, 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.STDOUT, 
-                        text=True, 
-                        cwd=cwd,
-                        bufsize=1,  # Line buffered
-                        universal_newlines=True
-                    )
+                # Native Windows execution - no Wine needed
+                current_process = subprocess.Popen(
+                    command, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.STDOUT, 
+                    text=True, 
+                    cwd=cwd,
+                    bufsize=1,  # Line buffered
+                    universal_newlines=True
+                )
 
                 socket_config.set_current_process(current_process)
 
@@ -428,12 +471,8 @@ def start_simulation(data=None):
                 emit('error', f"Simulation folder '{sim_folder}' not found")
                 return
 
-            # Check Wine availability on Linux
-            if platform.system().lower() == 'linux':
-                if not WineUtils.check_wine_installed():
-                    emit('error', "Wine is not installed or not properly configured. Cannot run Windows executables.")
-                    return
-                emit('message', "Wine detected - ready to run Windows executables")
+            # Native Windows environment - no Wine checks needed
+            emit('message', "Windows environment detected - ready to run Windows executables")
 
             # Get specific file names from client data
             map_filename = data.get('mapFile', '')
@@ -576,39 +615,79 @@ def start_simulation(data=None):
         logger.error("No simulation data provided or 'simName' missing")
         emit('error', "Simulation data missing required fields")
 
+# Verify this exists in your src/app.py
 @app.route('/health')
 def health_check():
     """Health check endpoint for Azure App Service"""
-    status = {
-        'status': 'healthy',
-        'platform': platform.system(),
-        'python_version': platform.python_version(),
-        'wine_available': False,
-        'directories': {
-            'uploads': str(UPLOAD_FOLDER),
-            'simulations': str(SIMULATIONS_FOLDER),
-            'tools': str(TOOLS_FOLDER),
-            'logs': str(LOGS_FOLDER),
-            'temp': str(TEMP_FOLDER)
-        },
-        'directory_status': {
-            'uploads_exists': UPLOAD_FOLDER.exists(),
-            'simulations_exists': SIMULATIONS_FOLDER.exists(),
-            'tools_exists': TOOLS_FOLDER.exists(),
-            'logs_exists': LOGS_FOLDER.exists(),
-            'temp_exists': TEMP_FOLDER.exists()
+    try:
+        import psutil
+        import platform
+        from datetime import datetime
+        
+        # Check system resources
+        memory = psutil.virtual_memory()
+        
+        # Azure-specific environment detection
+        azure_env = {
+            'is_azure': bool(os.environ.get('WEBSITE_SITE_NAME')),
+            'site_name': os.environ.get('WEBSITE_SITE_NAME', 'Not set'),
+            'site_root': os.environ.get('WEBSITE_SITE_ROOT', 'Not set'),
+            'port': os.environ.get('PORT', os.environ.get('HTTP_PLATFORM_PORT', 'Not set'))
         }
-    }
-    
-    if platform.system().lower() == 'linux':
-        status['wine_available'] = WineUtils.check_wine_installed()
-        if status['wine_available']:
-            try:
-                result = subprocess.run(['wine', '--version'], 
-                                      capture_output=True, text=True, timeout=5)
-                status['wine_version'] = result.stdout.strip()
-            except:
-                status['wine_version'] = 'unknown'
+        
+        status = {
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'environment': 'Azure App Service' if azure_env['is_azure'] else 'Development',
+            'platform': platform.platform(),
+            'python_version': platform.python_version(),
+            'azure_info': azure_env,
+            'system': {
+                'memory_percent': memory.percent,
+                'memory_available_mb': round(memory.available / 1024 / 1024, 2)
+            },
+            'directories': {
+                'uploads_exists': UPLOAD_FOLDER.exists(),
+                'simulations_exists': SIMULATIONS_FOLDER.exists(),
+                'tools_exists': TOOLS_FOLDER.exists(),
+                'logs_exists': LOGS_FOLDER.exists(),
+                'temp_exists': TEMP_FOLDER.exists()
+            },
+            'features': {
+                'native_windows': platform.system().lower() == 'windows',
+                'socketio_enabled': True,
+                'file_upload_enabled': True
+            }
+        }
+        
+        return jsonify(status), 200
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat(),
+            'environment': 'Azure App Service' if os.environ.get('WEBSITE_SITE_NAME') else 'Development'
+        }), 500
+
+# Add a simple test route for debugging
+@app.route('/test')
+def test_route():
+    """Simple test route for debugging"""
+    return jsonify({
+        'message': 'Test route working',
+        'timestamp': datetime.now().isoformat(),
+        'working_directory': os.getcwd(),
+        'environment_vars': {
+            'WEBSITE_SITE_NAME': os.environ.get('WEBSITE_SITE_NAME'),
+            'PORT': os.environ.get('PORT'),
+            'HTTP_PLATFORM_PORT': os.environ.get('HTTP_PLATFORM_PORT')
+        }
+    })   
+    # Windows native environment - no Wine needed
+    status['windows_native'] = True
+    status['platform'] = platform.system()
     
     return jsonify(status)
 
