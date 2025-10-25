@@ -21,6 +21,8 @@ import platform
 import subprocess
 import signal
 from datetime import datetime
+from scipy.interpolate import griddata
+
 
 
 
@@ -163,7 +165,7 @@ except ImportError as e:
 try:
     from modules.vfp_processing import runVFP as run
     from modules.vfp_processing import readGEO as rG
-    from modules.vfp_processing.readVFP import readVIS
+    from modules.vfp_processing.readVFP import readVIS, readCP, readFORCE, readFLOW
     logger.info("[SUCCESS] VFP processing modules imported successfully")
 except ImportError as e:
     logger.error(f"ERROR: Could not import VFP modules: {e}")
@@ -707,6 +709,215 @@ def stop_simulation():
     else:
         emit('message', "No simulation currently running")
 
+@app.route('/parse_cp', methods=['POST'])
+def parse_cp():
+    """
+    Parse CP file using readVFP.readCP function
+    Expects multipart/form-data with: file, fileName, simName
+    Returns: Parsed CP data as JSON
+    """
+    try:
+        print("=== DEBUG: parse_cp endpoint called ===")
+        
+        # Check if file is in request
+        if 'file' not in request.files:
+            print("DEBUG: No file in request")
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        file_name = request.form.get('fileName', file.filename)
+        sim_name = request.form.get('simName', 'unknown')
+        
+        if file.filename == '':
+            print("DEBUG: Empty filename")
+            return jsonify({'error': 'No file selected'}), 400
+        
+        print(f"DEBUG: Processing file - fileName={file_name}, simName={sim_name}")
+        
+        # Create a temporary file to use with readCP function
+        temp_file_path = f"{file_name}"
+        print(f"DEBUG: Using temp file: {temp_file_path}")
+        
+        try:
+            # Save uploaded file to temporary location
+            file.save(temp_file_path)
+            print("DEBUG: File saved to temporary location")
+            
+            # Use readCP function to parse the file
+            print("DEBUG: Calling readCP function...")
+            parsed_data = readCP(temp_file_path)
+            print(f"DEBUG: readCP returned: {type(parsed_data)}")
+            
+            # Clean up temporary file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+                print("DEBUG: Temporary file cleaned up")
+            
+            if parsed_data is None:
+                print("DEBUG: readCP returned None")
+                return jsonify({'error': 'Failed to parse CP file - readCP returned None'}), 500
+            
+            print(f"Successfully parsed CP file: {file_name}")
+            
+            # Return the parsed data directly as JSON
+            return jsonify(parsed_data), 200
+            
+        except Exception as file_error:
+            print(f"DEBUG: File operation error: {str(file_error)}")
+            # Clean up temporary file on error
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            raise file_error
+            
+    except Exception as e:
+        print(f"DEBUG: General error in parse_cp: {str(e)}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': f'Error parsing CP file: {str(e)}',
+            'traceback': traceback.format_exc()
+        }), 500
+
+@app.route('/parse_forces', methods=['POST'])
+def parse_forces():
+    """
+    Parse Forces file using readVFP.readFORCE function
+    Expects multipart/form-data with: file, fileName, simName
+    Returns: Parsed Forces data as JSON
+    """
+    try:
+        print("=== DEBUG: parse_forces endpoint called ===")
+        
+        # Check if file is in request
+        if 'file' not in request.files:
+            print("DEBUG: No file in request")
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        file_name = request.form.get('fileName', file.filename)
+        sim_name = request.form.get('simName', 'unknown')
+        
+        if file.filename == '':
+            print("DEBUG: Empty filename")
+            return jsonify({'error': 'No file selected'}), 400
+        
+        print(f"DEBUG: Processing file - fileName={file_name}, simName={sim_name}")
+        
+        # Create a temporary file to use with readFORCE function
+        temp_file_path = f"temp_{sim_name}_{file_name}"
+        print(f"DEBUG: Using temp file: {temp_file_path}")
+        
+        try:
+            # Save uploaded file to temporary location
+            file.save(temp_file_path)
+            print("DEBUG: File saved to temporary location")
+            
+            # Use readFORCE function to parse the file
+            print("DEBUG: Calling readFORCE function...")
+            parsed_data = readFORCE(temp_file_path)
+            print(f"DEBUG: readFORCE returned: {type(parsed_data)}")
+            
+            # Clean up temporary file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+                print("DEBUG: Temporary file cleaned up")
+            
+            if parsed_data is None:
+                print("DEBUG: readFORCE returned None")
+                return jsonify({'error': 'Failed to parse Forces file - readFORCE returned None'}), 500
+            
+            print(f"Successfully parsed Forces file: {file_name}")
+            
+            # Return the parsed data directly as JSON
+            return jsonify(parsed_data), 200
+            
+        except Exception as file_error:
+            print(f"DEBUG: File operation error: {str(file_error)}")
+            # Clean up temporary file on error
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            raise file_error
+            
+    except Exception as e:
+        print(f"DEBUG: General error in parse_forces: {str(e)}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': f'Error parsing Forces file: {str(e)}',
+            'traceback': traceback.format_exc()
+        }), 500
+
+@app.route('/parse_dat', methods=['POST'])
+def parse_dat():
+    """
+    Parse DAT file using readVFP.readFLOW function
+    Expects multipart/form-data with: file, fileName, simName
+    Returns: Parsed DAT data as JSON
+    """
+    try:
+        print("=== DEBUG: parse_dat endpoint called ===")
+        
+        # Check if file is in request
+        if 'file' not in request.files:
+            print("DEBUG: No file in request")
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        file_name = request.form.get('fileName', file.filename)
+        sim_name = request.form.get('simName', 'unknown')
+        
+        if file.filename == '':
+            print("DEBUG: Empty filename")
+            return jsonify({'error': 'No file selected'}), 400
+        
+        print(f"DEBUG: Processing file - fileName={file_name}, simName={sim_name}")
+        
+        # Create a temporary file to use with readFLOW function
+        temp_file_path = f"temp_{sim_name}_{file_name}"
+        print(f"DEBUG: Using temp file: {temp_file_path}")
+        
+        try:
+            # Save uploaded file to temporary location
+            file.save(temp_file_path)
+            print("DEBUG: File saved to temporary location")
+            
+            # Use readFLOW function to parse the file
+            print("DEBUG: Calling readFLOW function...")
+            parsed_data = readFLOW(temp_file_path)
+            print(f"DEBUG: readFLOW returned: {type(parsed_data)}")
+            
+            # Clean up temporary file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+                print("DEBUG: Temporary file cleaned up")
+            
+            if parsed_data is None:
+                print("DEBUG: readFLOW returned None")
+                return jsonify({'error': 'Failed to parse DAT file - readFLOW returned None'}), 500
+            
+            print(f"Successfully parsed DAT file: {file_name}")
+            
+            # Return the parsed data directly as JSON
+            return jsonify(parsed_data), 200
+            
+        except Exception as file_error:
+            print(f"DEBUG: File operation error: {str(file_error)}")
+            # Clean up temporary file on error
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            raise file_error
+            
+    except Exception as e:
+        print(f"DEBUG: General error in parse_dat: {str(e)}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': f'Error parsing DAT file: {str(e)}',
+            'traceback': traceback.format_exc()
+        }), 500
+
+
+
 @app.route('/boundary_layer_data', methods=['POST'])
 def boundary_layer_data():
     """Process VIS file for boundary layer data"""
@@ -745,6 +956,72 @@ def boundary_layer_data():
     except Exception as e:
         logger.error(f"Error in boundary_layer_data: {str(e)}")
         return jsonify({'error': f'Error processing VIS file: {str(e)}'}), 500
+    
+
+def clean_grid(arr):
+    arr = np.array(arr)
+    arr = np.where(np.isnan(arr) | np.isinf(arr), None, arr)
+    return arr.tolist()
+
+
+@app.route('/contour_grid', methods=['POST'])
+def contour_grid():
+    data = request.get_json()
+    cp_data = data['cp_data']
+    level = data['level']
+    contour_type = data['contour_type']
+    surface_type = data['surface_type']
+    threshold = data.get('threshold', 0)
+    n_grid = data.get('n_grid', 150)
+
+    level_data = cp_data['levels'][level]
+    sections = level_data['sections']
+
+    x_list = []
+    y_list = []
+    val_list = []
+
+    for sec in sections.values():
+        x_vals = sec.get('XPHYS', [])
+        vals = sec.get(contour_type, [])
+        yave = sec.get('coefficients', {}).get('YAVE')
+        if yave is None:
+            import re
+            m = re.search(r'YAVE=\s*([\d.-]+)', sec.get('sectionHeader', ''))
+            yave = float(m.group(1)) if m else None
+        if yave is not None and x_vals and vals and len(x_vals) == len(vals):
+            min_idx = x_vals.index(min(x_vals))
+            top_idx = len(x_vals) - 1
+            if surface_type == "upper":
+                indices = range(min_idx, top_idx + 1)
+            elif surface_type == "lower":
+                indices = range(0, min_idx + 1)
+            else:
+                indices = []
+            for i in indices:
+                v = vals[i]
+                if v >= threshold:
+                    x_list.append(x_vals[i])
+                    y_list.append(yave)
+                    val_list.append(v)
+
+    x_arr = np.array(x_list)
+    y_arr = np.array(y_list)
+    val_arr = np.array(val_list)
+
+    # Create grid for contour plot
+    xi = np.linspace(np.min(x_arr), np.max(x_arr), n_grid)
+    yi = np.linspace(np.min(y_arr), np.max(y_arr), n_grid)
+    xi, yi = np.meshgrid(xi, yi)
+    zi = griddata((x_arr, y_arr), val_arr, (xi, yi), method='linear')
+
+    # Convert to lists for JSON serialization
+    x_grid = clean_grid(xi)
+    y_grid = clean_grid(yi)
+    z_grid = clean_grid(zi)
+
+    return jsonify({"x": x_grid, "y": y_grid, "z": z_grid})
+
 
 @app.route('/interpolate_parameter', methods=['POST'])
 def interpolate_parameter():
