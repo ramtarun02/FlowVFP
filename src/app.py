@@ -528,7 +528,7 @@ def start_simulation(data=None):
             emit('message', f"Simulation started for {sim_name}")
 
             # Copy necessary files to simulation folder using Wine-compatible function
-            tools_bin_folder = TOOLS_FOLDER / "bin"
+            tools_bin_folder = TOOLS_FOLDER / "vfp"
             utils_folder = project_root / "modules" / "utils"
             
             if tools_bin_folder.exists():
@@ -1586,6 +1586,157 @@ def compute_desired():
     except Exception as e:
         logger.error(f"Error in compute_desired: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    
+
+
+@app.route('/fpcon', methods=['POST'])
+def fpcon():
+    try:
+        # Get form data
+        geoName = request.form.get('geoName')
+        aspectRatio = request.form.get('aspectRatio')
+        taperRatio = request.form.get('taperRatio')
+        sweepAngle = request.form.get('sweepAngle')
+        nsect = int(request.form.get('nsect', 1))
+        nchange = int(request.form.get('nchange', 0))
+        changeSections_raw = request.form.getlist('changeSections[]') or request.form.get('changeSections', '')
+
+        # Split by comma or dot, flatten and clean
+        if isinstance(changeSections_raw, list) and changeSections_raw:
+            changeSections = []
+            for val in changeSections_raw:
+                # Split by comma or dot
+                for part in val.replace(',', '.').split('.'):
+                    part = part.strip()
+                    if part:
+                        changeSections.append(part)
+        else:
+            changeSections = []
+            for part in str(changeSections_raw).replace(',', '.').split('.'):
+                part = part.strip()
+                if part:
+                    changeSections.append(part)
+
+
+        
+        etas = request.form.getlist('etas[]') or request.form.get('etas', '').split(',')
+        hsect = request.form.getlist('hsect[]') or request.form.get('hsect', '').split(',')
+        xtwsec = request.form.getlist('xtwsec[]') or request.form.get('xtwsec', '').split(',')
+        twsin = request.form.getlist('twsin[]') or request.form.get('twsin', '').split(',')
+        body_radius = request.form.get('bodyRadius', '0.0')
+        clcd_conv = request.form.get('clcd_conv', 'n')
+        mach = request.form.get('mach', '0.0')
+        incidence = request.form.get('incidence', '0.0')
+
+        # Create upload directory
+        upload_dir = UPLOAD_FOLDER / geoName
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save uploaded files
+        file_names = []
+        for file_key in request.files:
+            file = request.files[file_key]
+            if file.filename:
+                filename = secure_filename(file.filename)
+                file.save(os.path.join(upload_dir, filename))
+                file_names.append(filename)
+
+        # Write EXIN1.dat
+        exin1_path = upload_dir / "EXIN1.DAT"
+        with open(exin1_path, "w") as f:
+            f.write("n\n")
+            f.write(f"{' ' * 3}{float(aspectRatio):.5f}      {float(taperRatio):.7f}\n")
+            f.write(f"{' ' * 3}{float(sweepAngle):.6f}\n")
+            f.write(f"{' ' * 11}{nsect}\n")
+            f.write(f"{' ' * 11}{nchange}\n")
+            for sec in changeSections:
+                f.write(f"{' ' * 11}{sec}\n")
+            for fname in file_names:
+                f.write(f"{fname}\n")
+            for i in range(nsect):
+                eta = float(etas[i]) if i < len(etas) else 0.0
+                h = float(hsect[i]) if i < len(hsect) else 0.0
+                x = float(xtwsec[i]) if i < len(xtwsec) else 0.0
+                t = float(twsin[i]) if i < len(twsin) else 0.0
+                f.write(f"{' ' * 2}{eta:.7f}      {h:.7f}      {x:.7f}      {t:.7f}\n")
+            f.write(f"{' ' * 2}{float(body_radius):.7f}\n")
+            f.write(f"{geoName}\n")
+            f.write(f"{clcd_conv}\n")
+            f.write(f"{' ' * 2}{float(mach):.7f}      {float(incidence):.7f}\n")
+
+        # Copy all files from fpcon directory (excluding folders) to geoName folder
+        fpcon_dir = TOOLS_FOLDER / 'fpcon'
+        if os.path.exists(fpcon_dir):
+            for item in os.listdir(fpcon_dir):
+                src_path = os.path.join(fpcon_dir, item)
+                dst_path = os.path.join(upload_dir, item)
+                if os.path.isfile(src_path):
+                    shutil.copy2(src_path, dst_path)
+
+        try:
+            subprocess.run(
+                ['cmd.exe', '/c', 'fpcon < EXIN1.dat'],
+                cwd=upload_dir,
+                shell=True,
+                check=True,
+                timeout=10
+            )
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Error running fpcon: {str(e)}"}), 500
+
+        # Wait for 8 seconds
+        import time
+        time.sleep(5)
+
+        # Check for GEO.DAT, MAP.DAT, FLOW.DAT
+        geo_dat = upload_dir / 'GEO.DAT'
+        map_dat = upload_dir / 'MAP.DAT'
+        flow_dat = upload_dir / 'FLOW.DAT'
+        geosup_dat = upload_dir / 'GEOSUP.DAT'
+        respin_dat = upload_dir / 'RESPIN.DAT'
+
+
+
+        # Rename GEO.DAT and MAP.DAT to {geoName}.GEO and {geoName}.map
+        geo_out = upload_dir / f"{geoName}.GEO"
+        map_out = upload_dir / f"{geoName}.map"
+        if geo_dat.exists():
+            geo_dat.replace(geo_out)
+        if map_dat.exists():
+            map_dat.replace(map_out)
+
+
+        # Prepare files for download
+        files_to_send = [
+            geo_out,
+            map_out,
+            flow_dat,
+            geosup_dat,
+            respin_dat
+        ]
+        # Check existence and collect missing files
+        missing = [f for f in files_to_send if not os.path.exists(f)]
+        if missing:
+            return jsonify({
+                "success": False,
+                "error": f"Missing output files: {', '.join([os.path.basename(f) for f in missing])}"
+            }), 500
+
+        # Zip the files for download
+        zip_path = upload_dir / f"{geoName}_vfp_files.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for f in files_to_send:
+                zipf.write(f, arcname=os.path.basename(f))
+
+        return send_file(
+            zip_path,
+            as_attachment=True,
+            download_name=f"{geoName}_vfp_files.zip", 
+            mimetype='application/zip'
+        )
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500   
 
 @app.route('/export-geo', methods=['POST'])
 def export_geo():
