@@ -181,7 +181,7 @@ current_process = None
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['https://ramtarun02.github.io', 'http://localhost:3000'])
 
 # Set Flask config
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
