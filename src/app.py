@@ -317,7 +317,8 @@ def stream_process_threaded(command, cwd):
             with app.app_context():
                 socket_config.emit_message(f"Starting process: {' '.join(command)}")
                 socket_config.emit_message(f"Platform: {platform.system()}")
-                
+                env = os.environ.copy()
+                env["PYTHONPATH"] = f"{project_root / 'src'};{project_root / 'modules'}"
                 # Native Windows execution - no Wine needed
                 current_process = subprocess.Popen(
                     command, 
@@ -325,6 +326,7 @@ def stream_process_threaded(command, cwd):
                     stderr=subprocess.STDOUT, 
                     text=True, 
                     cwd=cwd,
+                    env = env,
                     bufsize=1,  # Line buffered
                     universal_newlines=True
                 )
@@ -555,7 +557,7 @@ def start_simulation(data=None):
                 
                 # Use threaded process to run VFP_Full_Process.py
                 stream_process_threaded([
-                    "python", "VFP_Full_Process.py", 
+                    sys.executable, "VFP_Full_Process.py", 
                     dat_filename, dalpha, alphaN, map_file, geo_file
                 ], str(sim_folder))
 
