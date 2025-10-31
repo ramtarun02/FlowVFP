@@ -144,6 +144,12 @@ def airfoils(Sect: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             _, xus, zus = interpolate_airfoil(s['US'], num_points=10000)
             _, xls, zls = interpolate_airfoil(s['LS'], num_points=10000)
 
+            # Translate z coordinates by HSECT value
+            zus = [z + s['HSECT'] for z in zus]
+            zls = [z + s['HSECT'] for z in zls]
+
+
+
             # Check if normalized coordinates exist and interpolate them too
             xus_n, zus_n, xls_n, zls_n = [], [], [], []
             if all(key in s for key in ['XUS_N', 'ZUS_N', 'XLS_N', 'ZLS_N']):
