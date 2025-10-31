@@ -193,7 +193,7 @@ function ContourPlot() {
                     xaxis: { title: "XPHYS" },
                     yaxis: { title: "YAVE" },
                     zaxis: { title: "ZPHYS" },
-                    aspectratio: { x: 1, y: yAspect, z: 0.75 }
+                    aspectratio: { x: 1, y: yAspect, z: 0.25 }
                 },
                 margin: { l: 0, r: 0, t: 50, b: 0 },
                 paper_bgcolor: "white",
