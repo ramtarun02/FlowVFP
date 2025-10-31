@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useContext } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import { Line } from "react-chartjs-2";
@@ -13,11 +13,9 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { useContext } from "react";
 import FormDataContext from "./FormDataContext";
 
 import { createSocket } from '../utils/socket';
-import { min } from "d3";
 
 // Register Chart.js components
 ChartJS.register(
@@ -31,15 +29,31 @@ ChartJS.register(
   Legend
 );
 
+// Generate a large palette of distinct colors for up to 50 runs
+function generateColorPalette(n) {
+  const palette = [];
+  for (let i = 0; i < n; i++) {
+    // Use HSL for visually distinct colors
+    palette.push(`hsl(${(i * 360) / n}, 70%, 50%)`);
+  }
+  return palette;
+}
+const RUN_COLORS = generateColorPalette(60);
+
 const SimulationRun = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [socket, setSocket] = useState(null);
-  const [residualData, setResidualData] = useState({
-    iterations: [],
-    residuals: [],
-  });
+  const [newRunStarted, setNewRunStarted] = useState(false);
+
+  // residualRuns: an array of runs. Each run is { id, iterations: [], residuals: [], color }
+  const [residualRuns, setResidualRuns] = useState([
+    { id: 0, iterations: [], residuals: [], color: RUN_COLORS[0] },
+  ]);
+  const [currentRunIndex, setCurrentRunIndex] = useState(0);
+  const currentRunIndexRef = useRef(0);
+
   const [simulationName, setSimulationName] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -47,28 +61,65 @@ const SimulationRun = () => {
   const { formData } = useContext(FormDataContext);
   const messageBoxRef = useRef(null);
 
-  // Parse residual data from messages
   const parseResidualData = (message) => {
+    if (!message) return;
+
+    const lower = message.toLowerCase();
+
+    // Detect "[ALL DONE]" marker only
+    const doneMarker = "[all done]";
+    if (lower.includes(doneMarker)) {
+      console.log("New simulation run detected after '[ALL DONE]'.");
+      setResidualRuns((prevRuns) => {
+        const nextIndex = prevRuns.length;
+        const nextColor = RUN_COLORS[nextIndex % RUN_COLORS.length];
+        const newRuns = [
+          ...prevRuns,
+          { id: Date.now(), iterations: [], residuals: [], color: nextColor }
+        ];
+        currentRunIndexRef.current = nextIndex;
+        setCurrentRunIndex(nextIndex);
+        return newRuns;
+      });
+      setNewRunStarted(true);
+      // Do not return here -- we still may get additional info in same message,
+      // so continue to attempt parsing numbers below.
+    }
+
     // Pattern to match the format: [number] [iteration] [residual]
-    const residualPattern = /^\s*\d+\s+(\d+)\s*(-?[\d.e-]+)\s*$/i;
+    const residualPattern = /^\s*\d+\s+(\d+)\s*(-?[\d.eE+-]+)\s*$/i;
     const match = message.match(residualPattern);
 
     if (match) {
-      const iteration = parseInt(match[1]);
+      const iteration = parseInt(match[1], 10);
       const residual = parseFloat(match[2]);
 
       if (!isNaN(iteration) && !isNaN(residual)) {
-        setResidualData(prev => ({
-          iterations: [...prev.iterations, iteration],
-          residuals: [...prev.residuals, Math.abs(residual)],
-        }));
+        const absResidual = Math.abs(residual);
+        // Always append to the latest run only
+        setResidualRuns((prev) => {
+          const idx = prev.length - 1;
+          const next = prev.map((r, i) =>
+            i === idx
+              ? {
+                ...r,
+                iterations: [...r.iterations, iteration],
+                residuals: [...r.residuals, absResidual],
+              }
+              : r
+          );
+          return next;
+        });
+        setNewRunStarted(false);
       }
     }
 
-    // Check if simulation is complete
-    if (message.toLowerCase().includes('solver complete') ||
-      message.toLowerCase().includes('simulation complete') ||
-      message.toLowerCase().includes('finished')) {
+    // Check if simulation is complete (existing logic)
+    if (
+      lower.includes("solver complete") ||
+      lower.includes("simulation complete") ||
+      lower.includes("finished")
+    ) {
       setSimulationComplete(true);
     }
   };
@@ -196,24 +247,24 @@ const SimulationRun = () => {
     navigate(-1);
   };
 
-  // Chart configuration with improved styling and minimal margins
+  // Build Chart datasets from residualRuns. Each run is a separate dataset.
   const chartData = {
-    labels: residualData.iterations,
-    datasets: [
-      {
-        label: "Residuals",
-        data: residualData.residuals,
-        borderColor: "#ef4444",
-        backgroundColor: "rgba(239, 68, 68, 0.1)",
-        tension: 0.4,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-        borderWidth: 2,
-        pointBackgroundColor: "#ef4444",
-        pointBorderColor: "#ffffff",
-        pointBorderWidth: 1,
-      },
-    ],
+    datasets: residualRuns.map((run, idx) => ({
+      label: idx === 0 ? "Residuals" : `Residuals (cont ${idx})`,
+      data: run.iterations.map((it, i) => ({ x: it, y: run.residuals[i] })),
+      borderColor: run.color,
+      backgroundColor: run.color,
+      tension: 0.3,
+      pointRadius: 4,
+      pointHoverRadius: 7,
+      borderWidth: 1,
+      pointBackgroundColor: run.color,
+      pointBorderColor: "#ffffff",
+      pointBorderWidth: 0.8,
+      showLine: run.iterations.length > 1, // Only join points within the same run
+      spanGaps: false, // Do not join across runs
+      fill: false,
+    })),
   };
 
   const chartOptions = {
@@ -239,11 +290,11 @@ const SimulationRun = () => {
           },
           usePointStyle: true,
           boxWidth: 8,
-          padding: 15,
+          padding: 12,
         },
       },
       title: {
-        display: false, // Remove title to save space
+        display: false,
       },
       tooltip: {
         backgroundColor: "rgba(31, 41, 55, 0.95)",
@@ -255,16 +306,20 @@ const SimulationRun = () => {
         displayColors: false,
         callbacks: {
           title: function (context) {
-            return `Iteration ${context[0].label}`;
+            const it = context[0]?.raw?.x ?? context[0]?.label;
+            return `Iteration ${it}`;
           },
           label: function (context) {
-            return `Residual: ${context.parsed.y.toExponential(3)}`;
+            const y = context.parsed?.y ?? context.raw?.y;
+            if (typeof y === "number") return `Residual: ${y.toExponential(3)}`;
+            return `Residual: ${y}`;
           },
         },
       },
     },
     scales: {
       x: {
+        type: "linear",
         display: true,
         title: {
           display: true,
@@ -281,6 +336,7 @@ const SimulationRun = () => {
           font: {
             size: 11,
           },
+          autoSkip: true,
           maxTicksLimit: 8,
           padding: 5,
         },
@@ -310,7 +366,7 @@ const SimulationRun = () => {
             size: 11,
           },
           padding: 5,
-          callback: function (value, index, values) {
+          callback: function (value) {
             if (value >= 1e-1) return value.toFixed(1);
             if (value >= 1e-3) return value.toExponential(0);
             return value.toExponential(1);
@@ -328,7 +384,7 @@ const SimulationRun = () => {
     },
     interaction: {
       intersect: false,
-      mode: 'index',
+      mode: "index",
     },
   };
 
@@ -421,19 +477,14 @@ const SimulationRun = () => {
         </div>
       </div>
 
-      {/* Main Content - Always Two Columns on Laptop/Tablet/Desktop */}
+      {/* Main Content - Console narrower, chart wider */}
       <div className="max-w-7xl mx-auto p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[calc(100vh-180px)]">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-4 h-[calc(100vh-180px)]">
           {/* Console Section */}
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden flex flex-col">
             {/* Console Header */}
             <div className="px-4 py-3 bg-gradient-to-r from-slate-50 to-gray-50 border-b border-gray-200 flex-shrink-0">
               <div className="flex items-center gap-3">
-                <div className="flex gap-1">
-                  {/* <div className="w-3 h-3 bg-red-500 rounded-full"></div> */}
-                  {/* <div className="w-3 h-3 bg-yellow-500 rounded-full"></div> */}
-                  {/* <div className="w-3 h-3 bg-green-500 rounded-full"></div> */}
-                </div>
                 <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -487,29 +538,24 @@ const SimulationRun = () => {
             </div>
           </div>
 
-          {/* Chart Section - Optimized for Space */}
+          {/* Chart Section - Wider */}
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden flex flex-col">
             {/* Compact Chart Header */}
             <div className="px-4 py-3 bg-gradient-to-r from-slate-50 to-gray-50 border-b border-gray-200 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                   Residuals vs Iterations
                 </h2>
-                {residualData.iterations.length > 0 && (
-                  <div className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">
-                    {residualData.iterations.length} points
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* Chart Container - Maximized Space Utilization */}
+            {/* Chart Container - Fill available space */}
             <div className="flex-1 p-2 bg-white min-h-0">
-              <div className="h-full w-full">
-                {residualData.iterations.length > 0 ? (
+              <div className="w-full h-full">
+                {residualRuns.some(r => r.iterations.length > 0) ? (
                   <div className="w-full h-full">
                     <Line data={chartData} options={chartOptions} />
                   </div>
@@ -517,7 +563,7 @@ const SimulationRun = () => {
                   <div className="h-full flex items-center justify-center text-gray-500">
                     <div className="text-center">
                       <svg className="w-10 h-10 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2v6a2 2 0 002 2h2a2 2 0 002-2m0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                       <p className="font-medium">Waiting for residual data...</p>
                       <p className="text-sm mt-1 opacity-75">Chart will update automatically</p>
@@ -534,27 +580,24 @@ const SimulationRun = () => {
         .min-h-0 {
           min-height: 0;
         }
-        
         /* Custom scrollbar for webkit browsers */
         *::-webkit-scrollbar {
           width: 6px;
         }
-        
         *::-webkit-scrollbar-track {
           background: #374151;
         }
-        
         *::-webkit-scrollbar-thumb {
           background: #4ade80;
           border-radius: 3px;
         }
-        
         *::-webkit-scrollbar-thumb:hover {
           background: #22c55e;
         }
       `}</style>
     </div>
   );
+
 };
 
 export default SimulationRun;

@@ -223,7 +223,8 @@ function PostProcessing() {
         if (!response.ok) {
           throw new Error(`Failed to get file content: ${response.status}`);
         }
-        const fileContent = await response.text();
+        // Use .text() for plain text responses
+        const fileContent = response.text ? await response.text() : '';
         const blob = new Blob([fileContent], { type: 'text/plain' });
         formData.append('file', blob, file.name);
       }

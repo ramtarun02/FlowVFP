@@ -42,6 +42,20 @@ export const fetchAPI = async (url, options = {}) => {
         };
     }
 
+    // If plain text, expose .text()
+    if (contentType.includes('text/plain')) {
+        const textData = await response.text();
+        return {
+            ok: response.ok,
+            status: response.status,
+            headers: response.headers,
+            text: () => Promise.resolve(textData),
+            response
+        };
+    }
+
+
+
     // Otherwise, try to parse as JSON
     let data;
     try {
