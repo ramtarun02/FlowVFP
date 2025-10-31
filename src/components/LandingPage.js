@@ -7,13 +7,13 @@ function LandingPage() {
       {/* Logo Container - Top Left Corner */}
       <div className="absolute top-4 left-8 z-10 flex flex-col items-start">
         <img
-          src="cranfield-logo.svg"
-          alt="Cranfield University Logo"
+          src="/VFP-2025/cranfield-logo.svg"
+          alt="/Cranfield University Logo"
           className="w-48 mb-3 transition-transform duration-300 hover:scale-105"
         />
-        <button className="bg-gray-200 hover:bg-gray-300 px-4 py-2 border-0 rounded-lg cursor-pointer font-bold text-sm shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5">
+        {/* <button className="bg-gray-200 hover:bg-gray-300 px-4 py-2 border-0 rounded-lg cursor-pointer font-bold text-sm shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5">
           Instructions
-        </button>
+        </button> */}
       </div>
 
       {/* Main Layout Container */}
@@ -36,7 +36,7 @@ function LandingPage() {
               >
                 <div className="bg-white w-64 h-48 lg:w-72 lg:h-52 xl:w-80 xl:h-56 rounded-xl shadow-lg group-hover:shadow-2xl transition-all duration-300 overflow-hidden">
                   <img
-                    src="Geometry.png"
+                    src="/VFP-2025/Geometry.png"
                     alt="Geometry Module"
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />
@@ -53,7 +53,7 @@ function LandingPage() {
               >
                 <div className="bg-white w-64 h-48 lg:w-72 lg:h-52 xl:w-80 xl:h-56 rounded-xl shadow-lg group-hover:shadow-2xl transition-all duration-300 overflow-hidden">
                   <img
-                    src="solver.PNG"
+                    src="/VFP-2025/solver.PNG"
                     alt="Run VFP Solver"
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />
@@ -70,7 +70,7 @@ function LandingPage() {
               >
                 <div className="bg-white w-64 h-48 lg:w-72 lg:h-52 xl:w-80 xl:h-56 rounded-xl shadow-lg group-hover:shadow-2xl transition-all duration-300 overflow-hidden">
                   <img
-                    src="postprocess.png"
+                    src="/VFP-2025/postprocess.png"
                     alt="Post Processing Module"
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />
