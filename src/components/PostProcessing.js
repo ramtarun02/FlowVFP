@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import Plot from 'react-plotly.js';
 import { fetchAPI } from '../utils/fetch';
 import { useSimulationData } from "../components/SimulationDataContext"; // Use context from correct path
+import regression from 'regression';
+
 
 function PostProcessing() {
   // --- Routing and Context ---
@@ -253,10 +255,75 @@ function PostProcessing() {
   };
 
   // --- File Selection Handler ---
+  // Allow multiple .dat files, process wavedrag files for CD Wave
   const handleFileSelect = async (file) => {
     const ext = file.name.split('.').pop().toLowerCase();
     if (!['dat', 'cp', 'forces'].includes(ext)) return;
 
+    // For .dat files, allow multiple selection
+    if (ext === 'dat') {
+      setIsLoadingDAT(true);
+      setParsedDatData(null);
+
+      setSelectedFiles(prev => ({
+        ...prev,
+        dat: Array.isArray(prev.dat) ? [...prev.dat, file] : prev.dat ? [prev.dat, file] : [file]
+      }));
+
+      // Check if this is a wavedrag file
+      if (file.name.toLowerCase().includes('wavedrg')) {
+        let fileContent = '';
+        if (file.file) {
+          // Local file: read using FileReader
+          fileContent = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsText(file.file);
+          });
+        } else {
+          // Server file: fetch from API
+          const simName = simulationData?.simName || 'unknown';
+          const response = await fetchAPI(`/get_file_content`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              simName: simName,
+              filePath: file.path || file.name
+            })
+          });
+          if (response.ok && response.text) {
+            fileContent = await response.text();
+          }
+        }
+        // Find all lines with wave drag value
+        const waveDragLines = fileContent.match(/Total wave drag for block is CDW\(tot\) =\s*([\d.]+)/g) || [];
+        let waveDragSum = 0;
+        waveDragLines.forEach(line => {
+          const match = line.match(/CDW\(tot\) =\s*([\d.]+)/);
+          if (match) {
+            waveDragSum += parseFloat(match[1]);
+          }
+        });
+        // Print to console and update drag breakdown
+        const cdWaveValue = waveDragSum * 0.0001;
+        console.log('Total Wave Drag (CD Wave):', cdWaveValue.toFixed(6));
+        setDragBreakdown(prev => ({
+          ...prev,
+          cdWave: cdWaveValue
+        }));
+        setIsLoadingDAT(false);
+        return;
+      }
+
+      // Only parse the main flow .dat file (not wavedrag)
+      const parsedData = await uploadAndParseFile(file, ext);
+      setIsLoadingDAT(false);
+      if (parsedData) setParsedDatData(parsedData);
+      return;
+    }
+
+    // For cp and forces, single selection as before
     setSelectedFiles(prev => ({
       ...prev,
       [ext]: file
@@ -271,9 +338,6 @@ function PostProcessing() {
     } else if (ext === 'forces') {
       setIsLoadingForces(true);
       setParsedForcesData(null);
-    } else if (ext === 'dat') {
-      setIsLoadingDAT(true);
-      setParsedDatData(null);
     }
 
     const parsedData = await uploadAndParseFile(file, ext);
@@ -285,6 +349,7 @@ function PostProcessing() {
       setIsLoadingForces(false);
       if (parsedData) {
         setParsedForcesData(parsedData);
+        console.log('[DEBUG] Parsed forces data:', parsedData);
         if (parsedData.levels && Object.keys(parsedData.levels).length > 0) {
           const levelKeys = Object.keys(parsedData.levels);
           const sortedLevelKeys = levelKeys.sort((a, b) => {
@@ -296,7 +361,7 @@ function PostProcessing() {
           const highestLevel = parsedData.levels[highestLevelKey];
           if (highestLevel.coefficients) {
             setCoefficients({
-              CL: highestLevel.coefficients.CL || 0.000000,
+              CL: highestLevel.ibeCoefficients.CL || 0.000000,
               CD: highestLevel.coefficients.CD || 0.000000,
               CM: highestLevel.coefficients.CM || 0.000000
             });
@@ -304,15 +369,24 @@ function PostProcessing() {
           setDragBreakdown({
             cdInduced: highestLevel.vortexCoefficients?.CD || 0.000,
             cdViscous: highestLevel.viscousDragData?.totalViscousDrag || 0.000,
-            cdWave: 0.000
+            cdWave: dragBreakdown.cdWave // keep existing wave drag value
           });
         }
       }
-    } else if (ext === 'dat') {
-      setIsLoadingDAT(false);
-      if (parsedData) setParsedDatData(parsedData);
     }
   };
+
+  // --- Utility: File Selection ---
+  // Update isFileSelected to support multiple .dat files
+  const isFileSelected = (file) => {
+    if (Array.isArray(selectedFiles.dat)) {
+      if (selectedFiles.dat.some(selected => selected?.path === file.path)) return true;
+    } else if (selectedFiles.dat?.path === file.path) {
+      return true;
+    }
+    return Object.values(selectedFiles).some(selected => selected?.path === file.path);
+  };
+
 
   // --- Plot Generation ---
   const generatePlotData = useCallback(() => {
@@ -326,6 +400,17 @@ function PostProcessing() {
     generatePlotData();
   }, [generatePlotData]);
 
+  const polyarea = (x, y) => {
+    // Shoelace formula for area of polygon
+    let area = 0;
+    const n = x.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      area += x[i] * y[j] - x[j] * y[i];
+    }
+    return Math.abs(area) / 2;
+  };
+
   const generateSpanwisePlotData = useCallback(() => {
     if (selectedLevel && selectedSpanwiseCoeff && parsedCpData && showSpanwiseDistribution) {
       if (!parsedCpData.levels || !parsedCpData.levels[selectedLevel]) return;
@@ -333,18 +418,23 @@ function PostProcessing() {
       const sections = level.sections;
       if (!sections || Object.keys(sections).length === 0) return;
 
-      const yaveValues = [];
+      // Gather yaveYtip, coeff, chord arrays
+      const yaveYtipValues = [];
       const coeffValues = [];
-      let loadValues = [];
-      let maxY = 0;
-      let chordValues = [];
+      const chordValues = [];
+      const loadValues = [];
 
       Object.values(sections).forEach((section) => {
-        if (section.coefficients) {
-          const yave = section.coefficients.YAVE;
-          const chord = section.coefficients.CHORD || section.chord || 1;
-          if (yave !== undefined && Math.abs(yave) > maxY) maxY = Math.abs(yave);
-
+        if (section.sectionHeader) {
+          // Extract YAVE/YTIP from sectionHeader string
+          const match = section.sectionHeader.match(/YAVE\/YTIP=\s*([0-9.+-eE]+)/);
+          if (match) {
+            const yaveYtip = parseFloat(match[1]);
+            yaveYtipValues.push(yaveYtip);
+          } else {
+            yaveYtipValues.push(undefined);
+          }
+          const chord = section.coefficients?.CHORD || section.chord || 1;
           if (selectedSpanwiseCoeff === 'Load') {
             chordValues.push(chord);
           }
@@ -356,68 +446,109 @@ function PostProcessing() {
         ? chordValues.reduce((a, b) => a + b, 0) / chordValues.length
         : 1;
 
-      Object.values(sections).forEach((section) => {
-        if (section.coefficients) {
-          const yave = section.coefficients.YAVE;
-          let coeff;
-          if (selectedSpanwiseCoeff === 'Load') {
-            // Load = CL * CHORD / meanChord
-            const cl = section.coefficients.CL;
-            const chord = section.coefficients.CHORD || section.chord || 1;
-            coeff = (cl !== undefined && chord !== undefined && meanChord !== 0)
-              ? cl * chord / meanChord
-              : undefined;
-            loadValues.push(coeff);
-          } else {
-            coeff = section.coefficients[selectedSpanwiseCoeff];
-          }
-          if (yave !== undefined && coeff !== undefined) {
-            yaveValues.push(yave);
-            coeffValues.push(coeff);
-          }
+      Object.values(sections).forEach((section, idx) => {
+        let coeff;
+        if (selectedSpanwiseCoeff === 'Load') {
+          const cl = section.coefficients?.CL;
+          const chord = section.coefficients?.CHORD || section.chord || 1;
+          coeff = (cl !== undefined && chord !== undefined && meanChord !== 0)
+            ? cl * chord / meanChord
+            : undefined;
+          loadValues.push(coeff);
+        } else {
+          coeff = section.coefficients?.[selectedSpanwiseCoeff];
+        }
+        if (yaveYtipValues[idx] !== undefined && coeff !== undefined) {
+          coeffValues.push(coeff);
         }
       });
 
-      // For Load, also calculate ideal elliptic distribution
+      // Remove undefined values and sort by yaveYtip
+      const validIndices = yaveYtipValues
+        .map((val, idx) => ({ val, idx }))
+        .filter(obj => obj.val !== undefined && coeffValues[obj.idx] !== undefined)
+        .sort((a, b) => a.val - b.val)
+        .map(obj => obj.idx);
+
+      const sortedYaveYtip = validIndices.map(idx => yaveYtipValues[idx]);
+      const sortedCoeff = selectedSpanwiseCoeff === 'Load'
+        ? validIndices.map(idx => loadValues[idx])
+        : validIndices.map(idx => coeffValues[idx]);
+
       let plotDataArr = [];
       if (selectedSpanwiseCoeff === 'Load') {
-        // Ideal elliptic distribution: sqrt(1 - (y/maxY)^2)
-        const idealLoad = yaveValues.map(y => Math.sqrt(1 - Math.pow(y / maxY, 2)));
+        // MATLAB-like logic for extrapolation and ideal ellipse
+
+        // clcb = sortedCoeff
+        const clcb = sortedCoeff;
+        // Find ab (ellipse radius) so curve passes through last point
+        const lastYaveYtip = sortedYaveYtip[sortedYaveYtip.length - 1];
+        const lastClcb = clcb[clcb.length - 1];
+        const ab = Math.sqrt((lastClcb ** 2) / (1 - lastYaveYtip ** 2));
+        // Extrapolate from lastYaveYtip to 1
+        const xb = [];
+        const yb = [];
+        for (let x = lastYaveYtip; x <= 1; x += 0.001) {
+          xb.push(x);
+          yb.push(Math.sqrt(ab ** 2 * (1 - (x ** 2) / 1 ** 2)));
+        }
+        // Concatenate and sort extrapolated arrays
+        const yave2 = [...sortedYaveYtip, ...xb];
+        const y2 = [...clcb, ...yb];
+        // Sort combined arrays by yave2
+        const combined = yave2.map((y, i) => ({ y, val: y2[i] }));
+        combined.sort((a, b) => a.y - b.y);
+        const finalYave = combined.map(obj => obj.y);
+        const finalY = combined.map(obj => obj.val);
+
+        // Area calculation for ideal ellipse
+        const a = 1;
+        const area = polyarea(finalYave, finalY) + 0.5 * (a * finalY[0] + finalY[finalY.length - 1] * a);
+        const b = 4 * area / (Math.PI * a);
+
+        // Ideal ellipse
+        const xIdeal = [];
+        const yIdeal = [];
+        for (let x = 0; x <= a; x += 0.001) {
+          xIdeal.push(x);
+          yIdeal.push(Math.sqrt(b ** 2 * (1 - (x ** 2) / (a ** 2))));
+        }
+
         plotDataArr = [
           {
-            x: yaveValues,
-            y: loadValues,
+            x: finalYave,
+            y: finalY,
             type: 'scatter',
-            mode: 'markers',
-            marker: { color: '#334155', size: 8 },
+            mode: 'lines',
             line: { color: '#334155', width: 2 },
             name: 'Spanwise Load'
           },
           {
-            x: yaveValues,
-            y: idealLoad,
+            x: xIdeal,
+            y: yIdeal,
             type: 'scatter',
-            mode: 'markers',
-            line: { color: '#22c55e', dash: 'dash', width: 2 },
+            mode: 'lines',
+            line: { color: '#ef4444', dash: 'dash', width: 2 },
             name: 'Ideal Elliptic'
           }
         ];
       } else {
         plotDataArr = [{
-          x: yaveValues,
-          y: coeffValues,
+          x: sortedYaveYtip,
+          y: sortedCoeff,
           type: 'scatter',
-          mode: 'markers',
+          mode: 'markers+lines',
           marker: { color: '#334155', size: 8 },
-          name: `${selectedSpanwiseCoeff} vs YAVE`
+          line: { color: '#334155', width: 2 },
+          name: `${selectedSpanwiseCoeff} vs YAVE/YTIP`
         }];
       }
 
       const yAxisTitle = selectedSpanwiseCoeff === 'Load' ? 'Load' : selectedSpanwiseCoeff;
       const spanwisePlotLayout = {
-        title: `Spanwise Distribution - ${yAxisTitle} vs YAVE (Level ${selectedLevel})`,
-        xaxis: { title: 'YAVE', showgrid: true, zeroline: true, showticklabels: true },
-        yaxis: { title: yAxisTitle, showgrid: true, zeroline: true, showticklabels: true },
+        title: { text: `Spanwise Distribution - ${yAxisTitle} vs YAVE/YTIP` },
+        xaxis: { title: { text: 'YAVE/YTIP' }, showgrid: true, zeroline: true, showticklabels: true },
+        yaxis: { title: { text: `Spanwise ${yAxisTitle}` }, showgrid: true, zeroline: true, showticklabels: true },
         margin: { l: 60, r: 40, t: 60, b: 60 },
         showlegend: selectedSpanwiseCoeff === 'Load',
         plot_bgcolor: 'white',
@@ -435,6 +566,7 @@ function PostProcessing() {
       });
     }
   }, [selectedLevel, selectedSpanwiseCoeff, parsedCpData, showSpanwiseDistribution]);
+
 
 
   useEffect(() => {
@@ -730,6 +862,116 @@ function PostProcessing() {
         name: 'Upper Surface'
       }
     ];
+
+    // Add Mach = 1 horizontal line if Mach plot
+    if (selectedPlotType === 'Mach') {
+      plot1Data.push({
+        x: [Math.min(...xValues), Math.max(...xValues)],
+        y: [1, 1],
+        type: 'scatter',
+        mode: 'lines',
+        line: { color: 'blue', dash: 'dash', width: 2 },
+        name: 'Mach 1'
+      });
+    }
+
+    // Cp plot: sweep and Cp* calculation, polynomial fit
+    if (selectedPlotType === 'Cp') {
+      let mach = section.coefficients?.M || level.coefficients?.M || 1.0;
+      const gamma = 1.4;
+      const cps = 2 / (gamma * mach ** 2) * (((2 + 0.4 * mach ** 2) / 2.4) ** (gamma / 0.4) - 1);
+
+      // Gather geometry for all sections in the selected level
+      const allSections = Object.values(level.sections)
+        .filter(sec => sec.coefficients && sec.coefficients.YAVE !== undefined && Array.isArray(sec['XPHYS']) && Array.isArray(sec['ZPHYS']))
+        .sort((a, b) => a.coefficients.YAVE - b.coefficients.YAVE);
+
+      const YAVE_arr = [];
+      const CPs_LE_arr = [];
+      const CPs_MC_arr = [];
+      const CPs_TE_arr = [];
+
+      for (let idx = 0; idx < allSections.length; idx++) {
+        const sec = allSections[idx];
+        const XPHYS = sec['XPHYS'];
+        const YAVE = sec.coefficients.YAVE;
+
+        // Leading and trailing edge X positions
+        const LE_X = Math.min(...XPHYS);
+        const TE_X = Math.max(...XPHYS);
+
+        YAVE_arr.push(YAVE);
+
+        // Sweep calculation using adjacent section
+        let LE_S = 0, TE_S = 0, ME_S = 0;
+        if (idx < allSections.length - 1) {
+          const nextSec = allSections[idx + 1];
+          const next_LE_X = Math.min(...nextSec['XPHYS']);
+          const next_TE_X = Math.max(...nextSec['XPHYS']);
+          const next_YAVE = nextSec.coefficients.YAVE;
+          LE_S = Math.atan((next_LE_X - LE_X) / (next_YAVE - YAVE)) * 180 / Math.PI;
+          TE_S = Math.atan((next_TE_X - TE_X) / (next_YAVE - YAVE)) * 180 / Math.PI;
+        }
+        if (idx === allSections.length - 1 && idx > 0) {
+          LE_S = CPs_LE_arr[CPs_LE_arr.length - 1]?.LE_S || 0;
+          TE_S = CPs_TE_arr[CPs_TE_arr.length - 1]?.TE_S || 0;
+        }
+        ME_S = (LE_S + TE_S) / 2;
+
+        // Sweep factors
+        const F_LE = ((1 + 0.5 * 0.4 * mach ** 2 * Math.cos(LE_S * Math.PI / 180) ** 2) /
+          (1 + 0.5 * 0.4 * mach ** 2 * Math.cos(ME_S * Math.PI / 180) ** 2)) ** (gamma / 0.4);
+        const F_TE = ((1 + 0.5 * 0.4 * mach ** 2 * Math.cos(TE_S * Math.PI / 180) ** 2) /
+          (1 + 0.5 * 0.4 * mach ** 2 * Math.cos(ME_S * Math.PI / 180) ** 2)) ** (gamma / 0.4);
+
+        const CPs_LE = (2 * (F_LE - 1) / (gamma * mach ** 2)) + F_LE * cps * Math.cos(ME_S * Math.PI / 180) ** 2;
+        const CPs_TE = (2 * (F_TE - 1) / (gamma * mach ** 2)) + F_TE * cps * Math.cos(ME_S * Math.PI / 180) ** 2;
+        const CPs_MC = cps * Math.cos(ME_S * Math.PI / 180) ** 2;
+
+        CPs_LE_arr.push(CPs_LE);
+        CPs_MC_arr.push(CPs_MC);
+        CPs_TE_arr.push(CPs_TE);
+      }
+
+      // Prepare fit data: [x, y] pairs for all sections and chord positions
+      const fitData = [];
+      for (let i = 0; i < YAVE_arr.length; i++) {
+        fitData.push([0, CPs_LE_arr[i]]);
+        fitData.push([0.5, CPs_MC_arr[i]]);
+        fitData.push([1, CPs_TE_arr[i]]);
+      }
+
+      // Polynomial fit (quadratic)
+      const result = regression.polynomial(fitData, { order: 2 });
+      const fitLineX = [0, 0.25, 0.5, 0.75, 1];
+      const fitLineY = fitLineX.map(x => result.predict(x)[1]);
+
+      // // Plot Cp* points for selected section
+      // const selectedSecIdx = allSections.findIndex(sec => sec === section);
+      // if (selectedSecIdx !== -1) {
+      //   plot1Data.push({
+      //     x: [0, 0.5, 1],
+      //     y: [CPs_LE_arr[selectedSecIdx], CPs_MC_arr[selectedSecIdx], CPs_TE_arr[selectedSecIdx]],
+      //     type: 'scatter',
+      //     mode: 'markers+lines',
+      //     line: { color: 'red', dash: 'dot', width: 2 },
+      //     marker: { color: 'red', size: 8 },
+      //     name: 'Cp* (Selected Section)'
+      //   });
+      // }
+
+      // Plot fit line
+      plot1Data.push({
+        x: fitLineX,
+        y: fitLineY,
+        type: 'scatter',
+        mode: 'lines',
+        line: { color: 'blue', dash: 'dash', width: 2 },
+        name: 'Cp'
+      });
+    }
+
+
     const sectionMatch = selectedSection.match(/section(\d+)/);
     let sectionNumber = sectionMatch ? parseInt(sectionMatch[1]) : '';
     if (section.sectionHeader) {
@@ -847,10 +1089,6 @@ function PostProcessing() {
     });
   };
 
-  // --- Utility: File Selection ---
-  const isFileSelected = (file) => {
-    return Object.values(selectedFiles).some(selected => selected?.path === file.path);
-  };
 
   const getFileTypeIcon = (fileType) => {
     const icons = {
