@@ -1454,6 +1454,8 @@ def compute():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+    
+
 
 @app.route('/compute_desired', methods=['POST'])
 def compute_desired():
@@ -1468,8 +1470,7 @@ def compute_desired():
         logger.info(f"Computing desired parameters for section {section_index}")
         logger.debug(f"Parameters received: {parameters}")
 
-        sec = section_index
-        i = sec  # converting to 0-based index
+        i  = section_index # converting to 0-based index
 
         # Extract current section data
         current_section = geo_data[i]
@@ -1529,63 +1530,62 @@ def compute_desired():
             logger.info("Applying twist/dihedral transformations to plot data")
             section_plot_data = plot_data[i]
 
-            # Always apply dihedral first
-            if dihedral_changed:
-                logger.info(f"Applying dihedral change: {current_section['HSECT']} -> {new_dihedral}")
-                delta_z = new_dihedral - current_section['HSECT']
-                logger.info(f"Dihedral z-increment: {delta_z}")
-
-                # Shift upper surface z-coordinates
-                zus_dihedral = [z + delta_z for z in section_plot_data['zus']]
-                # Shift lower surface z-coordinates
-                zls_dihedral = [z + delta_z for z in section_plot_data['zls']]
-
-                # Store dihedral-shifted coordinates
-                section_plot_data['zus_n'] = zus_dihedral
-                section_plot_data['zls_n'] = zls_dihedral
-                section_plot_data['xus_n'] = section_plot_data['xus']
-                section_plot_data['xls_n'] = section_plot_data['xls']
-            else:
-                # If no dihedral change, start with original coordinates
-                section_plot_data['zus_n'] = section_plot_data['zus']
-                section_plot_data['zls_n'] = section_plot_data['zls']
-                section_plot_data['xus_n'] = section_plot_data['xus']
-                section_plot_data['xls_n'] = section_plot_data['xls']
-
-            # Then apply twist if needed, on top of dihedral-modified coordinates
+            # --- Apply twist first, about XTWSEC (percent chord) ---
             if twist_changed:
                 current_twist_deg = current_section['TWIST']
                 dtwist_rad = (new_twist - current_twist_deg) * (math.pi / 180)
-                logger.info(f"Applying twist change: {current_twist_deg}° -> {new_twist}° (Δ={dtwist_rad} rad)")
+                # Convert XTWSEC (percent chord) to absolute x-coordinate
+                chord = current_section['G2SECT'] - current_section['G1SECT']
+                logger.info(f"Current chord length: {chord}, XLE: {current_section['G1SECT']}, XTE: {current_section['G2SECT']}")
+                xtwsec_percent = current_section['XTWSEC']
+                xtwsec_abs = current_section['G1SECT'] + xtwsec_percent * chord
+                hsect = current_section['HSECT']
 
-                # Apply rotation to upper surface
+                logger.info(f"Applying twist about XTWSEC={xtwsec_abs} (percent={xtwsec_percent}): {current_twist_deg}° -> {new_twist}° (Δ={dtwist_rad} rad)")
+
+                # Rotate upper surface
                 xus_rotated = []
                 zus_rotated = []
-                for j in range(len(section_plot_data['xus_n'])):
-                    x = section_plot_data['xus_n'][j]
-                    z = section_plot_data['zus_n'][j]
-                    x_rot = x * math.cos(-dtwist_rad) - z * math.sin(-dtwist_rad)
-                    z_rot = x * math.sin(-dtwist_rad) + z * math.cos(-dtwist_rad)
-                    xus_rotated.append(x_rot)
-                    zus_rotated.append(z_rot)
+                for j in range(len(section_plot_data['xus'])):
+                    x = section_plot_data['xus'][j]
+                    z = section_plot_data['zus'][j]
+                    # Shift origin to XTWSEC absolute
+                    x_shifted = x - xtwsec_abs
+                    z_shifted = z - hsect
+                    # Rotate
+                    x_rot = x_shifted * math.cos(-dtwist_rad) - z_shifted * math.sin(-dtwist_rad)
+                    z_rot = x_shifted * math.sin(-dtwist_rad) + z_shifted * math.cos(-dtwist_rad)
+                    # Shift back
+                    xus_rotated.append(x_rot + xtwsec_abs)
+                    zus_rotated.append(z_rot+hsect)
 
-                # Apply rotation to lower surface
+                # Rotate lower surface
                 xls_rotated = []
                 zls_rotated = []
-                for j in range(len(section_plot_data['xls_n'])):
-                    x = section_plot_data['xls_n'][j]
-                    z = section_plot_data['zls_n'][j]
-                    x_rot = x * math.cos(-dtwist_rad) - z * math.sin(-dtwist_rad)
-                    z_rot = x * math.sin(-dtwist_rad) + z * math.cos(-dtwist_rad)
-                    xls_rotated.append(x_rot)
-                    zls_rotated.append(z_rot)
+                for j in range(len(section_plot_data['xls'])):
+                    x = section_plot_data['xls'][j]
+                    z = section_plot_data['zls'][j]
+                    x_shifted = x - xtwsec_abs
+                    z_shifted = z - hsect
+                    x_rot = x_shifted * math.cos(-dtwist_rad) - z_shifted * math.sin(-dtwist_rad)
+                    z_rot = x_shifted * math.sin(-dtwist_rad) + z_shifted * math.cos(-dtwist_rad)
+                    xls_rotated.append(x_rot + xtwsec_abs)
+                    zls_rotated.append(z_rot+hsect)
 
-                # Overwrite with twist-modified coordinates
+                # Store twist-modified coordinates
                 section_plot_data['xus_n'] = xus_rotated
                 section_plot_data['zus_n'] = zus_rotated
                 section_plot_data['xls_n'] = xls_rotated
                 section_plot_data['zls_n'] = zls_rotated
 
+            # --- Then apply dihedral as vertical translation ---
+            if dihedral_changed:
+                logger.info(f"Applying dihedral change: {current_section['HSECT']} -> {new_dihedral}")
+                delta_z = new_dihedral - current_section['HSECT']
+                logger.info(f"Dihedral z-increment: {delta_z}")
+
+                section_plot_data['zus_n'] = [z + delta_z for z in section_plot_data['zus_n']]
+                section_plot_data['zls_n'] = [z + delta_z for z in section_plot_data['zls_n']]
                 
         # Step 3: Update the geoData with new twist/dihedral values
         if twist_changed:
