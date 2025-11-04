@@ -26,6 +26,11 @@ function PostProcessing() {
     forces: null
   });
 
+
+  const [isTextMode, setIsTextMode] = useState(false);
+  const [openedTextFiles, setOpenedTextFiles] = useState([]); // [{file, content}]
+  const [activeTextTab, setActiveTextTab] = useState(null);
+
   // --- Server Response Data States ---
   const [parsedDatData, setParsedDatData] = useState(null);
   const [parsedForcesData, setParsedForcesData] = useState(null);
@@ -253,6 +258,38 @@ function PostProcessing() {
       alert(`Error parsing ${fileType} file: ${error.message}`);
       return null;
     }
+  };
+
+  const handleOpenTextFile = async (file) => {
+    // Check if already opened
+    if (openedTextFiles.some(f => f.file.path === file.path)) {
+      setActiveTextTab(file.path);
+      return;
+    }
+    let content = '';
+    if (file.file) {
+      content = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsText(file.file);
+      });
+    } else {
+      const simName = simulationData?.simName || 'unknown';
+      const response = await fetchAPI(`/get_file_content`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          simName: simName,
+          filePath: file.path || file.name
+        })
+      });
+      if (response.ok && response.text) {
+        content = await response.text();
+      }
+    }
+    setOpenedTextFiles(prev => [...prev, { file, content }]);
+    setActiveTextTab(file.path);
   };
 
   // --- File Selection Handler ---
@@ -796,6 +833,8 @@ function PostProcessing() {
     });
   }, [parsedCpData, selectedLevel]);
 
+
+
   // --- Spanwise Distribution Button Handler ---
   const handleSpanwiseDistributionClick = () => {
     if (!parsedCpData || !selectedLevel) {
@@ -1162,6 +1201,15 @@ function PostProcessing() {
       <div className="h-full flex flex-col">
         <div className="p-4 border-b border-gray-200 bg-gray-50">
           <h3 className="text-lg font-semibold text-gray-800 mb-3">{simulationData.simName}</h3>
+          <div className="mb-3 flex items-center justify-between">
+            <span className="font-semibold text-blue-700">Text Mode</span>
+            <button
+              className={`ml-2 px-3 py-1 rounded-lg text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 ${isTextMode ? 'bg-blue-600 text-white' : 'bg-white border border-blue-300 text-blue-700 hover:bg-blue-50'}`}
+              onClick={() => setIsTextMode(!isTextMode)}
+            >
+              {isTextMode ? 'On' : 'Off'}
+            </button>
+          </div>
           <div className="space-y-1">
             <div className={`text-xs px-2 py-1 rounded-md font-medium ${selectedFiles.dat ? 'bg-slate-100 text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
               DAT: {isLoadingDAT ? '⏳ Loading...' : selectedFiles.dat ? '✓ Loaded' : '○ Not loaded'}
@@ -1197,7 +1245,13 @@ function PostProcessing() {
                             ? 'hover:bg-gray-50 border border-transparent'
                             : 'border border-transparent text-gray-500 cursor-default'
                           } ${isLoading ? 'opacity-60 cursor-wait' : ''}`}
-                        onClick={() => !isLoading && ['dat', 'cp', 'forces'].includes(fileType) && handleFileSelect(file)}
+                        onClick={() => {
+                          if (isTextMode) {
+                            handleOpenTextFile(file);
+                          } else if (!isLoading && ['dat', 'cp', 'forces'].includes(fileType)) {
+                            handleFileSelect(file);
+                          }
+                        }}
                         title={file.name}
                       >
                         <span className="text-sm mr-2">
@@ -1212,6 +1266,56 @@ function PostProcessing() {
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTextFileViewer = () => {
+    if (openedTextFiles.length === 0) {
+      return (
+        <div className="h-full flex items-center justify-center bg-blue-50">
+          <span className="text-gray-500">No file selected. Click a file in explorer to view.</span>
+        </div>
+      );
+    }
+    const rawContent = openedTextFiles.find(f => f.file.path === activeTextTab)?.content || '';
+    // Replace spaces and tabs with visible symbols
+    const visibleContent = rawContent
+      .replace(/ /g, '·')      // Show spaces as ·
+      .replace(/\t/g, '→   '); // Show tabs as → and some spaces
+
+
+    return (
+      <div className="h-full flex flex-col bg-white">
+        {/* Tabs */}
+        <div className="flex border-b border-blue-200 bg-blue-50">
+          {openedTextFiles.map(({ file }, idx) => (
+            <div
+              key={file.path}
+              className={`px-4 py-2 cursor-pointer border-r border-blue-100 ${activeTextTab === file.path ? 'bg-white font-semibold text-blue-700' : 'text-gray-700 hover:bg-blue-100'}`}
+              onClick={() => setActiveTextTab(file.path)}
+            >
+              {file.name}
+              <button
+                className="ml-2 text-xs text-gray-400 hover:text-red-500"
+                onClick={e => {
+                  e.stopPropagation();
+                  setOpenedTextFiles(prev => prev.filter(f => f.file.path !== file.path));
+                  if (activeTextTab === file.path) {
+                    // Switch to another tab or none
+                    const others = openedTextFiles.filter(f => f.file.path !== file.path);
+                    setActiveTextTab(others[0]?.file.path || null);
+                  }
+                }}
+                title="Close"
+              >✕</button>
+            </div>
+          ))}
+        </div>
+        {/* Text Area */}
+        <div className="flex-1 overflow-auto p-4 bg-white font-mono text-sm whitespace-pre-wrap border-t border-blue-100">
+          {openedTextFiles.find(f => f.file.path === activeTextTab)?.content || ''}
         </div>
       </div>
     );
@@ -1281,8 +1385,9 @@ function PostProcessing() {
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col">
-          {/* Show mesh plot spanning both areas when mesh is active */}
-          {showMesh && meshData ? (
+          {isTextMode ? (
+            renderTextFileViewer()
+          ) : showMesh && meshData ? (
             <div className="flex-1 bg-white">
               <Plot
                 data={meshData.data}
@@ -1361,6 +1466,8 @@ function PostProcessing() {
             </div>
           )}
         </div>
+
+
 
         {/* Right Sidebar */}
         <div className="w-80 bg-white border-l border-blue-200 flex flex-col overflow-y-auto">
