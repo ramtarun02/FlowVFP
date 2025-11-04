@@ -26,7 +26,7 @@
     "three": "^0.176.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",

@@ -4,6 +4,7 @@ import Plot from 'react-plotly.js';
 import { fetchAPI } from '../utils/fetch';
 import { useSimulationData } from "../components/SimulationDataContext"; // Use context from correct path
 import regression from 'regression';
+import { drag } from "d3";
 
 
 function PostProcessing() {
@@ -967,7 +968,7 @@ function PostProcessing() {
         type: 'scatter',
         mode: 'lines',
         line: { color: 'blue', dash: 'dash', width: 2 },
-        name: 'Cp'
+        name: 'Cp*'
       });
     }
 
@@ -1001,13 +1002,14 @@ function PostProcessing() {
       margin: { l: 60, r: 40, t: 60, b: 60 },
       showlegend: true,
       legend: {
-        x: 0.02,
-        y: 0.98,
-        xanchor: 'left',
-        yanchor: 'top',
+        // x: 0.02,
+        // y: 0.98,
+        // xanchor: 'left',
+        // yanchor: 'top',
         bgcolor: 'rgba(255,255,255,0.8)',
         bordercolor: 'rgba(0,0,0,0.2)',
-        borderwidth: 1
+        borderwidth: 1,
+        dragmode: 'move'
       },
       plot_bgcolor: 'white',
       paper_bgcolor: 'white'
