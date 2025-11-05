@@ -931,7 +931,7 @@ function GeometryModule() {
             >
               &times;
             </button>
-            <h2 className="text-2xl font-bold text-blue-700 mb-6 text-center">FPCON Wing Geometry Input</h2>
+            <h2 className="text-2xl font-bold text-blue-700 mb-6 text-center">FPCON Wing Geometry Generation</h2>
             <form onSubmit={handleFpconSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>

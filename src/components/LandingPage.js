@@ -59,7 +59,7 @@ function LandingPage() {
                   />
                 </div>
                 <p className="mt-3 text-base lg:text-lg font-bold text-blue-700 group-hover:text-blue-800 transition-colors duration-200 tracking-wide text-center">
-                  RUN VFP SOLVER
+                  VFP SOLVER
                 </p>
               </Link>
 
@@ -76,7 +76,7 @@ function LandingPage() {
                   />
                 </div>
                 <p className="mt-3 text-base lg:text-lg font-bold text-blue-700 group-hover:text-blue-800 transition-colors duration-200 tracking-wide text-center">
-                  POST PROCESSING MODULE
+                  VFP POST MODULE
                 </p>
               </Link>
             </div>
