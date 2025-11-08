@@ -851,6 +851,47 @@ function PostProcessing() {
     }
   };
 
+  // --- Remove Folder Handler ---
+  const handleRemoveFolder = () => {
+    setSimulationData(null);
+    setSelectedFiles({
+      dat: null,
+      cp: null,
+      forces: null
+    });
+    setParsedDatData(null);
+    setParsedCpData(null);
+    setParsedForcesData(null);
+    setLevels([]);
+    setSections([]);
+    setSelectedLevel('');
+    setSelectedPlotType('Mach');
+    setSelectedSection('');
+    setPlotData1(null);
+    setPlotData2(null);
+    setMeshData(null);
+    setShowMesh(false);
+    setShowSpanwiseDistribution(false);
+    setSelectedSpanwiseCoeff('CL');
+    setSpanwiseData(null);
+    setIsTextMode(false);
+    setOpenedTextFiles([]);
+    setActiveTextTab(null);
+    setIsLoadingCP(false);
+    setIsLoadingForces(false);
+    setIsLoadingDAT(false);
+    setCoefficients({
+      CL: 0.000000,
+      CD: 0.000000,
+      CM: -0.000000
+    });
+    setDragBreakdown({
+      cdInduced: 0.000,
+      cdViscous: 0.000,
+      cdWave: 0.000
+    });
+  };
+
   // --- Generate 2D Plot Data (Plot 1: CP/Mach vs X/C) ---
   const generatePlot1Data = () => {
     if (!parsedCpData || !selectedLevel || !selectedSection) {
@@ -1222,6 +1263,13 @@ function PostProcessing() {
             </div>
           </div>
         </div>
+        <button
+          onClick={handleRemoveFolder}
+          className="m-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+          title="Close Folder"
+        >
+          Close Folder
+        </button>
         <div className="flex-1 overflow-y-auto p-4">
           {Object.entries(files).map(([fileType, fileList]) => {
             if (!Array.isArray(fileList) || fileList.length === 0) return null;
