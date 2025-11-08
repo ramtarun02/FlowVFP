@@ -11,7 +11,19 @@ function PostProcessing() {
   // --- Routing and Context ---
   const navigate = useNavigate();
   const location = useLocation();
-  const { simulationData, setSimulationData } = useSimulationData(); // Use context for simulation data
+  const {
+    simulationData, setSimulationData,
+    selectedFiles, setSelectedFiles,
+    selectedLevel, setSelectedLevel,
+    selectedSection, setSelectedSection,
+    selectedPlotType, setSelectedPlotType,
+    selectedSpanwiseCoeff, setSelectedSpanwiseCoeff,
+    parsedCpData, setParsedCpData,
+    parsedDatData, setParsedDatData,
+    parsedForcesData, setParsedForcesData
+
+  } = useSimulationData();
+
 
   // --- UI State ---
   const [isExplorerOpen, setIsExplorerOpen] = useState(true);
@@ -19,35 +31,19 @@ function PostProcessing() {
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef(null);
 
-  // --- File Selection State ---
-  const [selectedFiles, setSelectedFiles] = useState({
-    dat: null,
-    cp: null,
-    forces: null
-  });
-
 
   const [isTextMode, setIsTextMode] = useState(false);
   const [openedTextFiles, setOpenedTextFiles] = useState([]); // [{file, content}]
   const [activeTextTab, setActiveTextTab] = useState(null);
 
-  // --- Server Response Data States ---
-  const [parsedDatData, setParsedDatData] = useState(null);
-  const [parsedForcesData, setParsedForcesData] = useState(null);
-  const [parsedCpData, setParsedCpData] = useState(null);
-
   // --- Dropdown and Plot States ---
   const [levels, setLevels] = useState([]);
   const [sections, setSections] = useState([]);
-  const [selectedLevel, setSelectedLevel] = useState('');
-  const [selectedPlotType, setSelectedPlotType] = useState('Mach');
-  const [selectedSection, setSelectedSection] = useState('');
   const [plotData1, setPlotData1] = useState(null);
   const [plotData2, setPlotData2] = useState(null);
   const [meshData, setMeshData] = useState(null);
   const [showMesh, setShowMesh] = useState(false);
   const [showSpanwiseDistribution, setShowSpanwiseDistribution] = useState(false);
-  const [selectedSpanwiseCoeff, setSelectedSpanwiseCoeff] = useState('CL');
   const [spanwiseData, setSpanwiseData] = useState(null);
 
   // --- Loading States ---
@@ -1406,7 +1402,7 @@ function PostProcessing() {
             Contour Plots
           </button>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => { setSelectedFiles({ dat: null, cp: null, forces: null }); navigate('/') }}
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
           >
             Back to Main
