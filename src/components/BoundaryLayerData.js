@@ -26,6 +26,12 @@ function BoundaryLayer() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
+
+    // --- File Explorer Resize State ---
+    const [explorerWidth, setExplorerWidth] = useState(320);
+    const [isResizing, setIsResizing] = useState(false);
+    const resizeRef = React.useRef(null);
+
     // --- Available .vis files from simulation folder ---
     const [availableVisFiles, setAvailableVisFiles] = useState([]);
 
@@ -33,7 +39,7 @@ function BoundaryLayer() {
     const [showBLProfile, setShowBLProfile] = useState(false);
     const [blInputs, setBLInputs] = useState({
         xc: 0.25,
-        eta: 1.5
+        eta: 0.5
     });
     const [selectedSurface, setSelectedSurface] = useState('upper');
     const [blParameters, setBLParameters] = useState({
@@ -76,6 +82,40 @@ function BoundaryLayer() {
             setAvailableVisFiles(visFiles);
         }
     }, [simulationData]);
+
+    // --- Mouse Handlers for Resize ---
+    const handleMouseDown = React.useCallback((e) => {
+        setIsResizing(true);
+        e.preventDefault();
+    }, []);
+
+    const handleMouseMove = React.useCallback((e) => {
+        if (!isResizing) return;
+        const newWidth = e.clientX;
+        if (newWidth >= 200 && newWidth <= 600) {
+            setExplorerWidth(newWidth);
+        }
+    }, [isResizing]);
+
+    const handleMouseUp = React.useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    useEffect(() => {
+        if (isResizing) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        } else {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizing, handleMouseMove, handleMouseUp]);
+
+
 
     // --- Handle file import from computer ---
     const handleImportVis = () => {
@@ -566,7 +606,7 @@ function BoundaryLayer() {
             layout: {
                 ...commonLayoutProps,
                 title: { text: `Pressure Coefficient (Cp)`, font: { size: 16, family: 'Arial, sans-serif' }, x: 0.5, xanchor: 'center' },
-                yaxis: { ...commonLayoutProps.yaxis, title: { text: 'Cp', font: { size: 14, family: 'Arial, sans-serif' } } }
+                yaxis: { ...commonLayoutProps.yaxis, title: { text: 'Cp', font: { size: 14, family: 'Arial, sans-serif' } }, autorange: 'reversed' }
             },
             config: commonConfig
         };
@@ -619,7 +659,17 @@ function BoundaryLayer() {
             {/* Content */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Controls Sidebar */}
-                <div className="w-64 lg:w-80 bg-white border-r border-blue-200 p-3 lg:p-4 overflow-y-auto flex-shrink-0">
+                <div
+                    className="bg-white border-r border-blue-200 p-3 lg:p-4 overflow-y-auto flex-shrink-0 relative transition-all duration-300"
+                    style={{ width: `${explorerWidth}px`, minWidth: '200px', maxWidth: '600px' }}
+                >
+                    {/* Drag handle for resizing */}
+                    <div
+                        ref={resizeRef}
+                        className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-400 transition-colors duration-200 ${isResizing ? 'bg-blue-400' : 'bg-blue-200'}`}
+                        onMouseDown={handleMouseDown}
+                        style={{ zIndex: 10 }}
+                    />
                     {/* Available .vis Files Section */}
                     {availableVisFiles.length > 0 && (
                         <div className="mb-4 lg:mb-6">
@@ -630,8 +680,7 @@ function BoundaryLayer() {
                                 {availableVisFiles.map((visFile, index) => (
                                     <div
                                         key={index}
-                                        className={`flex items-center p-2 lg:p-3 bg-white border border-blue-200 rounded-lg cursor-pointer transition-all duration-200 hover:bg-blue-50 hover:border-blue-400 hover:shadow-sm ${visData && visData.fileName === visFile.name ? 'ring-2 ring-blue-500 border-blue-500' : ''
-                                            }`}
+                                        className={`flex items-center p-2 lg:p-3 bg-white border border-blue-200 rounded-lg cursor-pointer transition-all duration-200 hover:bg-blue-50 hover:border-blue-400 hover:shadow-sm ${visData && visData.fileName === visFile.name ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
                                         onClick={() => handleSelectVisFromFolder(visFile)}
                                         title={`Click to load ${visFile.name}`}
                                     >
@@ -645,6 +694,8 @@ function BoundaryLayer() {
                             </div>
                         </div>
                     )}
+
+
 
                     <div className="mb-4 lg:mb-6">
                         <h3 className="text-base lg:text-lg font-semibold text-gray-800 mb-2 lg:mb-3 pb-2 border-b-2 border-blue-400">
