@@ -1411,6 +1411,7 @@ function GeometryModule() {
                 <Plot2D
                   plotData={plot2DTrace()}
                   selectedSection={selectedSection}
+                  selected2DPlot={selected2DPlot}
                   style={{ width: '100%', height: '100%' }}
                 />
               )}
