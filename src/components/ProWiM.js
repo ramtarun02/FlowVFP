@@ -52,12 +52,12 @@ function PropellerWingForm() {
   const [simulationData, setSimulationData] = useState(null);
 
   const [formData, setFormData] = useState({
-    A: "11",
-    bOverD: "6.39",
+    A: "8",
+    bOverD: "6.0",
     cOverD: "0.75",
     alpha0: "-2",
-    N: "2",
-    NSPSW: "0.4225",
+    N: "4",
+    NSPSW: "0.698",
     ZPD: "-0.1",
     IW: "2",
     NELMNT: "0",
@@ -67,7 +67,7 @@ function PropellerWingForm() {
     CL0: "0.5",
     CD0: "0.0230",
     KS00: "0.001",
-    propLocation: "5",
+    propLocation: "0.5",
     D: "3"
   });
 
@@ -402,7 +402,7 @@ function PropellerWingForm() {
       arrayInputs.CD0[index]?.toFixed(4) || 'N/A',
       arrayInputs.KS00[index]?.toFixed(4) || 'N/A',
       res.CZD?.toFixed(5) || 'N/A',
-      res.CXD?.toFixed(5) || 'N/A'
+      res.CXDwf?.toFixed(5) || 'N/A'
     ]);
 
     let content = '';
@@ -454,7 +454,7 @@ function PropellerWingForm() {
 
     const alphaValues = arrayInputs.ALFAWI;
     const clValues = result.map(res => res.CZD);
-    const cdValues = result.map(res => res.CXD);
+    const cdValues = result.map(res => Math.abs(res.CXDwf));
     const cl0Values = arrayInputs.CL0;
     const cd0Values = arrayInputs.CD0;
 
@@ -791,7 +791,7 @@ function PropellerWingForm() {
                           <td className="px-2 lg:px-4 py-2 lg:py-4 text-center text-gray-700">{arrayInputs.CL0[index]?.toFixed(3) || 'N/A'}</td>
                           <td className="px-2 lg:px-4 py-2 lg:py-4 text-center text-gray-700">{arrayInputs.CD0[index]?.toFixed(4) || 'N/A'}</td>
                           <td className="px-2 lg:px-4 py-2 lg:py-4 text-center font-medium text-blue-600">{res.CZD?.toFixed(5) || 'N/A'}</td>
-                          <td className="px-2 lg:px-4 py-2 lg:py-4 text-center font-medium text-red-600">{res.CXD?.toFixed(5) || 'N/A'}</td>
+                          <td className="px-2 lg:px-4 py-2 lg:py-4 text-center font-medium text-red-600">{Math.abs(res.CXDwf).toFixed(5) || 'N/A'}</td>
                         </tr>
                       ))}
                     </tbody>

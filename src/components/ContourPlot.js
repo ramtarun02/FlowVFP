@@ -27,8 +27,11 @@ function ContourPlot() {
     useEffect(() => {
         if (simulationData?.files?.cp) {
             setAvailableCpFiles(simulationData.files.cp);
-            if (simulationData.files.cp.length > 0) {
-                setSelectedCpFile(simulationData.files.cp[0].name);
+            // Always set selectedCpFile to the first file if only one exists or if not already set
+            if (simulationData.files.cp.length === 1) {
+                setSelectedCpFile(simulationData.files.cp[0].name || simulationData.files.cp[0].file?.name || (simulationData.files.cp[0] instanceof File ? simulationData.files.cp[0].name : ""));
+            } else if (simulationData.files.cp.length > 1 && !selectedCpFile) {
+                setSelectedCpFile(simulationData.files.cp[0].name || simulationData.files.cp[0].file?.name || (simulationData.files.cp[0] instanceof File ? simulationData.files.cp[0].name : ""));
             }
         }
     }, [simulationData]);
@@ -48,9 +51,21 @@ function ContourPlot() {
             return fileName === selectedCpFile;
         });
         if (!fileObj) return;
-
         // Prepare FormData for file upload
-        const file = fileObj.file || fileObj;
+        let file;
+        if (fileObj.file instanceof File) {
+            file = fileObj.file;
+        } else if (fileObj instanceof File) {
+            file = fileObj;
+        } else {
+            // fallback: try to get file from fileObj.file or fileObj
+            file = fileObj.file || fileObj;
+        }
+
+        if (!(file instanceof File)) {
+            setCpData(null);
+            return; // Prevent sending invalid file
+        }
         const formData = new FormData();
         formData.append("file", file);
         formData.append("fileName", file.name);
