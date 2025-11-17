@@ -1349,17 +1349,33 @@ def import_geo():
         return jsonify({'error': str(e)}), 500
 
 def compute_KS0D(CL0, CD0, A):
-    """Compute KS0D parameter for ProWim calculations"""
+    """
+    Compute KS0D parameter for ProWim calculations.
+    Implements:
+    KS0D = 1 - sqrt( (2/(pi*A)*CL0)^2 + (1 - 2/(pi*A)*CD0)^2 )
+    Handles both scalars and arrays.
+    """
     CL0 = np.array(CL0, dtype=float)
     CD0 = np.array(CD0, dtype=float)
-    val = 1 - np.sqrt(((2 * CL0) / (math.pi * A)) ** 2 + (1 - (2 * CD0) / (math.pi * A)) ** 2)
-    return np.round(val, 3)
+    factor = 2 / (math.pi * A)
+    term1 = (factor * CL0) ** 2
+    term2 = (1 - factor * CD0) ** 2
+    val = 1 - np.sqrt(term1 + term2)
+    return np.round(val, 7)
 
 def compute_TS0D(CL0, CD0, A):
-    """Compute TS0D parameter for ProWim calculations"""
+    """
+    Compute TS0D parameter for ProWim calculations.
+    Implements:
+    TS0D = arctan( (2/(pi*A)*CL0) / (1 - 2/(pi*A)*CD0) )
+    Returns degrees. Handles both scalars and arrays.
+    """
     CL0 = np.array(CL0, dtype=float)
-    CD0 = np.array(CD0, dtype=float)    
-    val = np.degrees(np.arctan((2 * CL0 / (math.pi * A)) / (1 - (2 * CD0 / (math.pi * A)))))
+    CD0 = np.array(CD0, dtype=float)
+    factor = 2 / (math.pi * A)
+    numerator = factor * CL0
+    denominator = 1 - factor * CD0
+    val = np.degrees(np.arctan(numerator / denominator))
     return np.round(val, 3)
 
 @app.route("/prowim-compute", methods=["POST"])
@@ -1394,6 +1410,7 @@ def compute():
 
         KS0D = compute_KS0D(CL0, CD0, A)
         TS0D = compute_TS0D(CL0, CD0, A)
+        print("Computed TS0D:", TS0D)
 
         Hzp = round((1 - 2.5 * abs(ZPD)), 2)
         Kdc = round((-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038), 2)
@@ -1401,9 +1418,14 @@ def compute():
                3.2742 * ZPD**3 + 0.2309 * ZPD**2 + 0.0418 * ZPD + 1.0027))
         TS0Ap0_1d = -2 * Kdc * alpha0
         TS10 = Hzp * TS0Ap0_1d + 1.15 * Kdc * Izp * IW + (ALFAWI - IW)
-        theta_s = TS0D + (CT + 0.3 * np.sin(math.pi * CT ** 1.36)) * (TS10 - TS0D)
+        theta_s = TS0D + (CT + 0.3 * np.sin(np.radians(float(CT)**1.36))) * (TS10 - TS0D)
+        print("Computed theta_s:", theta_s)
         ks = KS0D + CT * (KS00 - KS0D)
         r = math.sqrt(1 - CT)
+
+        # Ensure these are numpy arrays for vectorized math
+        theta_s = np.array(theta_s, dtype=float)
+        ks = np.array(ks, dtype=float)
 
         theta_rad = np.radians(theta_s)
         TS0D_rad = np.radians(TS0D)
@@ -1423,7 +1445,7 @@ def compute():
 
         CXwf = CX - CT * np.cos(np.radians(alpha_p))
         CXDwf = CXwf * NSPSW / (1 - CT)
-        CXD = -(CX * NSPSW / (1 - CT))
+        CXD = (CX * NSPSW / (1 - CT))
 
         # Prepare results as list of dicts - ensure all values are converted to Python types
         results = []
@@ -1444,7 +1466,6 @@ def compute():
             }
             results.append(result_item)
 
-        logger.info(f"Computed {len(results)} ProWim results")
         
         response = {"results": results}
         return jsonify(response)

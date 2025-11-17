@@ -965,6 +965,18 @@ def saveConsolidatedJSON(consolidated_data, output_filename):
         print(f"❌ Error saving consolidated data: {e}")
 
 
+if __name__ == "__main__":
+    # Test the functions with the attached files
+    test_and_print_json(readGEO, 'S340nbwd.GEO')
+    test_and_print_json(readMAP, 'S340nbwd.map')
+    test_and_print_json(readFLOW, 'M033Re12p0ma0p00.dat')
+
+    # Optionally, merge all parsed data into one consolidated JSON
+    geo_json = readGEO('S340nbwd.GEO')
+    map_json = readMAP('S340nbwd.map')
+    flow_json = readFLOW('M033Re12p0ma0p00.dat')
+    consolidated = mergeVFPData(geo_json, map_json, flow_json)
+    saveConsolidatedJSON(consolidated, 'consolidated_vfp_data.json')
 
 
 # Test functions (optional)
@@ -980,9 +992,9 @@ def saveConsolidatedJSON(consolidated_data, output_filename):
     # map_json = readMAP('CRM1wb.map')
     # flow_json = readFLOW('M085Re5p0ma+0p0.dat')
     # forces_json = readFORCE('CRM1wbsM085Re5ma0p0.forces')
-    # cp_json = readCP('CRM1wbsM085Re5ma0p0.cp')
+    cp_json = readCP('CRM1wbsM085Re5ma0p0.cp')
     # vis_json = readVIS('CRM1wbsM085Re5ma0p0.vis')
 
     # # Merge them - auto-detection based on fileName
-    # consolidated = mergeVFPData(geo_json, map_json, flow_json, forces_json, cp_json, vis_json)
-    # saveConsolidatedJSON(consolidated, 'consolidated_vfp_data.json')
+    consolidated = mergeVFPData(cp_json)
+    saveConsolidatedJSON(consolidated, 'consolidated_vfp_data.json') 
