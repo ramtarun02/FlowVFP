@@ -707,6 +707,7 @@ function PostProcessing() {
       map: [],
       txt: [],
       log: [],
+      csv: [],
       other: []
     };
     files.forEach(file => {

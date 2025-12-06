@@ -156,14 +156,14 @@ const Prowim3Dmodel = ({ bOverD, cOverD, D, propLocation }) => {
       if (mountRef.current && mountRef.current.parentElement) {
         const container = mountRef.current.parentElement;
         const computedStyle = window.getComputedStyle(container);
-        
+
         // Calculate available space considering padding
         const paddingX = parseFloat(computedStyle.paddingLeft) + parseFloat(computedStyle.paddingRight);
         const paddingY = parseFloat(computedStyle.paddingTop) + parseFloat(computedStyle.paddingBottom);
-        
+
         const width = Math.max(0, container.clientWidth - paddingX);
         const height = Math.max(0, container.clientHeight - paddingY);
-        
+
         setDimensions({ width, height });
       }
     };
@@ -192,7 +192,7 @@ const Prowim3Dmodel = ({ bOverD, cOverD, D, propLocation }) => {
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ 
+    const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: "high-performance"
     });
@@ -245,7 +245,7 @@ const Prowim3Dmodel = ({ bOverD, cOverD, D, propLocation }) => {
       );
       arrowhead.position.copy(axis.direction).multiplyScalar(axesSize);
       arrowhead.lookAt(new THREE.Vector3(0, 0, 0));
-      arrowhead.rotateX(-Math.PI/2);
+      arrowhead.rotateX(-Math.PI / 2);
       axesGroup.add(arrowhead);
     });
 
@@ -283,16 +283,16 @@ const Prowim3Dmodel = ({ bOverD, cOverD, D, propLocation }) => {
       i === 0 ? shape.moveTo(scaledX, scaledY) : shape.lineTo(scaledX, scaledY);
     });
 
-    const wingGeometry = new THREE.ExtrudeGeometry(shape, { 
-      depth: span, 
-      bevelEnabled: false 
+    const wingGeometry = new THREE.ExtrudeGeometry(shape, {
+      depth: span,
+      bevelEnabled: false
     });
     wingGeometry.rotateY(Math.PI / 2);
     wingGeometry.center();
 
     const wingMesh = new THREE.Mesh(
       wingGeometry,
-      new THREE.MeshStandardMaterial({ 
+      new THREE.MeshStandardMaterial({
         color: 0x0077ff,
         side: THREE.DoubleSide,
         metalness: 0.3,
@@ -307,19 +307,19 @@ const Prowim3Dmodel = ({ bOverD, cOverD, D, propLocation }) => {
     const propThickness = 0.05;
     const propellerMesh = new THREE.Mesh(
       new THREE.CylinderGeometry(propRadius, propRadius, propThickness, 64),
-      new THREE.MeshStandardMaterial({ 
+      new THREE.MeshStandardMaterial({
         color: 0xff0000,
         transparent: true,
         opacity: 0.8
       })
     );
-    
+
     propellerMesh.position.set(
       span * (propLocation - 0.5),
       0,
-      chord/2 + 0.5
+      chord / 2 + 0.5
     );
-    propellerMesh.rotateX(Math.PI/2);
+    propellerMesh.rotateX(Math.PI / 2);
     propellerMeshRef.current = propellerMesh;
     scene.add(propellerMesh);
 
@@ -349,7 +349,7 @@ const Prowim3Dmodel = ({ bOverD, cOverD, D, propLocation }) => {
       if (mountNode?.contains(renderer.domElement)) {
         mountNode.removeChild(renderer.domElement);
       }
-      
+
       controls.dispose();
       renderer.dispose();
       wingGeometry.dispose();
@@ -360,14 +360,14 @@ const Prowim3Dmodel = ({ bOverD, cOverD, D, propLocation }) => {
   }, [bOverD, cOverD, D, propLocation, dimensions, airfoilCoords]);
 
   return (
-    <div 
-      ref={mountRef} 
-      style={{ 
-        width: '100%', 
-        height: '500px', 
-        overflow: 'hidden', 
-        boxSizing: 'border-box' 
-      }} 
+    <div
+      ref={mountRef}
+      style={{
+        width: '100%',
+        height: '100%',
+        overflow: 'hidden',
+        boxSizing: 'border-box'
+      }}
     />
   );
 };
