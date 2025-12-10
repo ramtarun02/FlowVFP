@@ -4,7 +4,7 @@ import Plot from 'react-plotly.js';
 import { fetchAPI } from '../utils/fetch';
 import { useSimulationData } from "../components/SimulationDataContext"; // Use context from correct path
 import regression from 'regression';
-import { drag } from "d3";
+import { DEG2RAD } from "three/src/math/MathUtils.js";
 
 
 function PostProcessing() {
@@ -1197,6 +1197,85 @@ function PostProcessing() {
     }
   };
 
+
+  function computeAspectRatio(parsedCpData, selectedLevel) {
+    if (!parsedCpData || !parsedCpData.levels || !selectedLevel) return null;
+    const level = parsedCpData.levels[selectedLevel];
+    if (!level.sections) return null;
+    const sections = Object.values(level.sections);
+    if (sections.length < 2) return null;
+
+    // Extract YAVE and CHORD for each section
+    const yaves = [];
+    const chords = [];
+    sections.forEach(section => {
+      let yave = section.coefficients?.YAVE;
+      let chord = section.coefficients?.CHORD;
+      if (yave !== undefined && chord !== undefined) {
+        yaves.push(yave);
+        chords.push(chord);
+      }
+    });
+
+    if (yaves.length < 2 || chords.length < 2) return null;
+
+    // Sort by YAVE
+    const combined = yaves.map((y, i) => ({ y, c: chords[i] }));
+    combined.sort((a, b) => a.y - b.y);
+    const y = combined.map(obj => obj.y);
+    const c = combined.map(obj => obj.c);
+
+    // Area calculation
+    let area = 0;
+    const n = y.length;
+
+    if (n > 15) {
+      // Use Simpson's rule if n is odd, else use Simpson's for n-1 and trapezoid for last interval
+      if (n % 2 === 1) {
+        // Simpson's rule
+        for (let i = 0; i < n - 2; i += 2) {
+          const h = y[i + 2] - y[i];
+          area += (h / 6) * (c[i] + 4 * c[i + 1] + c[i + 2]);
+        }
+      } else {
+        // Simpson's rule for n-1, trapezoid for last interval
+        for (let i = 0; i < n - 3; i += 2) {
+          const h = y[i + 2] - y[i];
+          area += (h / 6) * (c[i] + 4 * c[i + 1] + c[i + 2]);
+        }
+        // Trapezoidal for last interval
+        const h = y[n - 1] - y[n - 2];
+        area += (h / 2) * (c[n - 2] + c[n - 1]);
+      }
+    } else {
+      // Trapezoidal rule
+      for (let i = 1; i < n; i++) {
+        area += (y[i] - y[i - 1]) * (c[i] + c[i - 1]) / 2;
+      }
+    }
+
+    area *= 2; // Both sides of the wing
+    const span = 2 * Math.abs(y[y.length - 1]);
+
+    console.log('Computed Wing Area:', area);
+    console.log('Computed Wing Span:', span);
+    console.log('Computed Aspect Ratio:', (span * span) / area);
+    if (area === 0) return null;
+    return (span * span / area);
+  }
+
+  function computeEpsilon(CL, AR) {
+    if (!CL || !AR) return null;
+    const e = 0.75;
+    return ((2 * CL) / (Math.PI * AR * e)) * DEG2RAD;
+  }
+
+
+  const AR = computeAspectRatio(parsedCpData, selectedLevel);
+  const epsilon = computeEpsilon(coefficients.CL, AR);
+
+
+
   // --- Render File Explorer ---
   const renderFileExplorer = () => {
     if (!simulationData) {
@@ -1632,6 +1711,16 @@ function PostProcessing() {
                   <span className="font-mono text-gray-900 text-sm">{coefficients.CM?.toFixed(6) || 'N/A'}</span>
                 </div>
               </div>
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-700">Epsilon (Downwash Angle)</span>
+                  <span className="font-mono text-gray-900 text-sm">
+                    {epsilon !== null && !isNaN(epsilon) ? epsilon.toFixed(5) : 'N/A'}
+                  </span>
+                </div>
+              </div>
+
+
             </div>
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Drag Breakdown</h3>
             <div className="space-y-3">
