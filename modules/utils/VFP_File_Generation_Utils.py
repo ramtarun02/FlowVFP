@@ -111,7 +111,7 @@ def iterate_AoA_modifications(original_file, mach_str, initial_aoa_str, output_b
 
         sign = "-" if new_aoa < 0 else "+"
         aoa_for_filename = f"{abs(new_aoa):.2f}".replace('.', 'p')
-        output_filename = f"{output_base_name}{aoa_for_filename}.dat"
+        output_filename = f"{output_base_name}{aoa_for_filename}.DAT"
         output_file_path = os.path.join(flow_dir, output_filename)
 
         # Only include all levels if aoa == 0, else only level3
@@ -125,26 +125,26 @@ def iterate_AoA_modifications(original_file, mach_str, initial_aoa_str, output_b
             # Include fuse if present
             if 'fuse' in data_json:
                 output_lines.extend(data_json['fuse'])
-            # Include only level3 if present
-            if 'level3' in data_json:
-                level3_lines = data_json['level3'][:]
-                # Modify first digit of second term in first line of level3
-                if level3_lines:
+            # Find the highest level key (e.g., level4 if present, else level3, etc.)
+            level_keys = [k for k in data_json.keys() if k.startswith('level')]
+            if level_keys:
+                # Sort by level number descending and pick the highest
+                highest_level = sorted(level_keys, key=lambda x: int(x.replace('level', '')), reverse=True)[0]
+                level_lines = data_json[highest_level][:]
+                # Modify first digit of second term in first line of the level
+                if level_lines:
                     def mod_first_digit(line):
                         pattern = re.compile(r'^(\s*2\s+)(\d{20})(.*)')
                         m = pattern.match(line)
                         if m:
                             new_second = '1' + m.group(2)[1:]
-                    
-        # Ensure the line ends with a newline
                             rest = m.group(3)
                             if not rest.endswith('\n'):
                                 rest += '\n'
                             return f"{m.group(1)}{new_second}{rest}"
                         return line if line.endswith('\n') else line + '\n'
-                                        
-                    level3_lines[0] = mod_first_digit(level3_lines[0])
-                output_lines.extend(level3_lines)
+                    level_lines[0] = mod_first_digit(level_lines[0])
+                output_lines.extend(level_lines)
             # Add one additional line with "    0"
             output_lines.append("    0\n")
 
@@ -162,7 +162,7 @@ def iterate_AoA_modifications(original_file, mach_str, initial_aoa_str, output_b
 def run_aoa_generation(flow_file, d, n):
     original_file = flow_file.strip()
     # Accept AoA with or without sign, e.g. M085Re19p8ma1p00.dat or M085Re19p8ma-1p00.dat
-    match = re.search(r"M(\d{3})[^-+]*([-+]?\d*p\d+|\d*p\d+)\.dat$", original_file)
+    match = re.search(r"M(\d{3})[^-+]*([-+]?\d*p\d+|\d*p\d+)\.DAT$", original_file)
     if not match:
         print("Filename format not recognized. Expected format like 'M085Re19p8ma-1p00.dat' or 'M085Re19p8ma1p00.dat'")
         return
@@ -196,7 +196,7 @@ def copy_generated_files_to_main_dir():
         print("Flow_Conditions directory does not exist.")
         return
 
-    dat_files = [f for f in os.listdir(flow_dir) if f.endswith(".dat")]
+    dat_files = [f for f in os.listdir(flow_dir) if f.endswith(".DAT")]
 
     for fname in dat_files:
         src_path = os.path.join(flow_dir, fname)
@@ -204,3 +204,5 @@ def copy_generated_files_to_main_dir():
         shutil.copy2(src_path, dst_path)
 
     print(f"Copied {len(dat_files)} .dat files to main directory.")
+
+

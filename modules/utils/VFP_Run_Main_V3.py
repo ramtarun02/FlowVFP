@@ -10,7 +10,7 @@ if len(sys.argv) < 2:
 
 def extract_aoa_from_dat_filename(filepath):
     filename = os.path.basename(filepath)
-    match = re.search(r"M\d+Re\d+p\d+ma([-+]?\d+p\d+)\.dat$", filename)
+    match = re.search(r"M\d+Re\d+p\d+ma([-+]?\d+p\d+)\.DAT$", filename)
     if match:
         aoa_str = match.group(1).replace('p', '.')
         try:
@@ -34,7 +34,7 @@ print(flow_dir)
 # Build dictionary of AoA -> filename
 flow_dict = {}
 for fname in os.listdir(flow_dir):
-    if fname.endswith(".dat"):
+    if fname.endswith(".DAT"):
         aoa = extract_aoa_from_dat_filename(fname)
         if aoa is not None:
             flow_dict[aoa] = fname
