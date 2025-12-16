@@ -55,14 +55,17 @@ function PostProcessing() {
   const [coefficients, setCoefficients] = useState({
     CL: 0.000000,
     CD: 0.000000,
-    CM: -0.000000
+    CM: -0.00000
   });
+
+  const [epsilon, setEpsilon] = useState(null);
 
   const [dragBreakdown, setDragBreakdown] = useState({
     cdInduced: 0.000,
     cdViscous: 0.000,
     cdWave: 0.000
   });
+
 
   // --- Utility: Convert files array to expected object structure ---
   const convertFilesArrayToObject = (filesArray) => {
@@ -391,7 +394,7 @@ function PostProcessing() {
             const bNum = parseInt(b.match(/\d+/)?.[0] || 0);
             return bNum - aNum;
           });
-          const highestLevelKey = sortedLevelKeys[0];
+          const highestLevelKey = sortedLevelKeys[sortedLevelKeys.length - 1];
           const highestLevel = parsedData.levels[highestLevelKey];
           if (highestLevel.coefficients) {
             setCoefficients({
@@ -1226,54 +1229,48 @@ function PostProcessing() {
     const c = combined.map(obj => obj.c);
 
     // Area calculation
-    let area = 0;
+    let wingArea = 0;
     const n = y.length;
 
-    if (n > 15) {
-      // Use Simpson's rule if n is odd, else use Simpson's for n-1 and trapezoid for last interval
-      if (n % 2 === 1) {
-        // Simpson's rule
-        for (let i = 0; i < n - 2; i += 2) {
-          const h = y[i + 2] - y[i];
-          area += (h / 6) * (c[i] + 4 * c[i + 1] + c[i + 2]);
-        }
-      } else {
-        // Simpson's rule for n-1, trapezoid for last interval
-        for (let i = 0; i < n - 3; i += 2) {
-          const h = y[i + 2] - y[i];
-          area += (h / 6) * (c[i] + 4 * c[i + 1] + c[i + 2]);
-        }
-        // Trapezoidal for last interval
-        const h = y[n - 1] - y[n - 2];
-        area += (h / 2) * (c[n - 2] + c[n - 1]);
+    if (n % 2 === 1 || n < 15) {
+      // Trapezoidal rule for odd number of sections or less than 12
+      for (let i = 1; i < n; i++) {
+        wingArea += (y[i] - y[i - 1]) * (c[i] + c[i - 1]) / 2;
       }
     } else {
-      // Trapezoidal rule
-      for (let i = 1; i < n; i++) {
-        area += (y[i] - y[i - 1]) * (c[i] + c[i - 1]) / 2;
+      // Simpson's rule for even number of sections (assumes y are equally spaced)
+      const h = (y[n - 1] - y[0]) / (n - 1);
+      let sum = c[0] + c[n - 1];
+      for (let i = 1; i < n - 1; i++) {
+        sum += (i % 2 === 0 ? 2 : 4) * c[i];
       }
+      wingArea = (h / 3) * sum;
     }
+    wingArea *= 2; // Both sides of the wing
 
-    area *= 2; // Both sides of the wing
     const span = 2 * Math.abs(y[y.length - 1]);
 
-    console.log('Computed Wing Area:', area);
+    console.log('Computed Wing Area:', wingArea);
     console.log('Computed Wing Span:', span);
-    console.log('Computed Aspect Ratio:', (span * span) / area);
-    if (area === 0) return null;
-    return (span * span / area);
+    console.log('Computed Aspect Ratio:', (span * span) / wingArea);
+    if (wingArea === 0) return null;
+    return (span * span / wingArea);
   }
 
   function computeEpsilon(CL, AR) {
     if (!CL || !AR) return null;
     const e = 0.75;
-    return ((2 * CL) / (Math.PI * AR * e)) * DEG2RAD;
+    return ((2 * CL) / (Math.PI * AR * e)) * 180 / Math.PI;
   }
 
-
-  const AR = computeAspectRatio(parsedCpData, selectedLevel);
-  const epsilon = computeEpsilon(coefficients.CL, AR);
-
+  useEffect(() => {
+    // Only compute if all dependencies are available
+    if (coefficients.CL && parsedCpData && selectedLevel) {
+      const AR = computeAspectRatio(parsedCpData, selectedLevel);
+      const eps = computeEpsilon(coefficients.CL, AR);
+      setEpsilon(eps);
+    }
+  }, [coefficients.CL, parsedCpData, selectedLevel]);
 
 
   // --- Render File Explorer ---

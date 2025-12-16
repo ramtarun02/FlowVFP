@@ -82,7 +82,7 @@ function RunSolver() {
   useEffect(() => {
     const mapFile = selectedFiles.find(file => file.name.endsWith(".map"));
     const geoFile = selectedFiles.find(file => file.name.endsWith(".GEO"));
-    const datFile = selectedFiles.find(file => file.name.endsWith(".dat"));
+    const datFile = selectedFiles.find(file => file.name.endsWith(".DAT"));
 
     // Update boolean states
     setMapImported(!!mapFile);
