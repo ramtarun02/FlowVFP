@@ -10,15 +10,14 @@ from readVFP import readGEO as geo
 # ============================================================
 
 # File paths
-cpFile = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M080_Re5M\CRM1wbsM08Re5ma0p0.cp"
+cpFile = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M080_Re5M\CRM1wbsM08Re5ma3p00.cp"
 geoFile = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CAD Geometry\NASA CRM\New Tail Geometry\VFP Tail 4\CRMHT4.GEO"
 
-Cl_VFP = 0.158450  # Target lift coefficient from the VFP case
+Cl_VFP = 0.43796  # Target lift coefficient from the VFP Wing case
 
 # Wing and tail geometry
 wing_root_chord = 12.50  # m
 tail_root_chord = 6.45   # m
-
 
 # Flight conditions
 rho_inf = 1.225     # kg/m^3
@@ -37,7 +36,7 @@ L_trail = 1000.0
 eps = 1e-6
 
 # Sweep angles
-Lambda_c4_deg = 41        # quarter-chord sweep angle [deg] (wing)
+Lambda_c4_deg = 35        # quarter-chord sweep angle [deg] (wing)
 Lambda_c4 = np.radians(Lambda_c4_deg)
 x_qc_root = 0.25 * wing_root_chord  # x-location of quarter-chord at root
 tail_sweep_deg = 41                # tail sweep [deg]
@@ -224,7 +223,6 @@ print(f"Effective downwash angle at tail (span-averaged): {effective_epsilon_deg
 epsilon  = 2* Cl_VFP / (np.pi * AR * 0.75)  # Prandtl's approximation with efficiency factor
 epsilon_deg = np.degrees(epsilon)
 print(f"Prandtl's approximation of downwash angle at tail: {epsilon_deg:.6f} deg")
-
 
 
 # print("Tail downwash angle distribution (deg):")
