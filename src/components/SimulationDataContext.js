@@ -20,6 +20,9 @@ export function SimulationDataProvider({ children }) {
     const [parsedCpData, setParsedCpData] = useState(null);
     const [parsedDatData, setParsedDatData] = useState(null);
     const [parsedForcesData, setParsedForcesData] = useState(null);
+    const [selectedTailFile, setSelectedTailFile] = useState(null);
+    const [selectedtailGEOFile, setSelectedtailGEOFile] = useState(null);
+    const [tailPlaneParams, setTailPlaneParams] = useState(null);
 
     return (
         <SimulationDataContext.Provider value={{
@@ -40,7 +43,13 @@ export function SimulationDataProvider({ children }) {
             parsedDatData,
             setParsedDatData,
             parsedForcesData,
-            setParsedForcesData
+            setParsedForcesData,
+            selectedTailFile,
+            setSelectedTailFile,
+            selectedtailGEOFile,
+            setSelectedtailGEOFile,
+            tailPlaneParams,
+            setTailPlaneParams
         }}>
             {children}
         </SimulationDataContext.Provider>

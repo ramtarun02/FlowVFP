@@ -20,10 +20,14 @@ function PostProcessing() {
     selectedSpanwiseCoeff, setSelectedSpanwiseCoeff,
     parsedCpData, setParsedCpData,
     parsedDatData, setParsedDatData,
-    parsedForcesData, setParsedForcesData
+    parsedForcesData, setParsedForcesData,
+    selectedTailFile, setSelectedTailFile,
+    selectedtailGEOFile, setSelectedtailGEOFile,
+    tailPlaneParams, setTailPlaneParams
 
   } = useSimulationData();
 
+  const [isLoadingTail, setIsLoadingTail] = useState(false);
 
   // --- UI State ---
   const [isExplorerOpen, setIsExplorerOpen] = useState(true);
@@ -77,7 +81,8 @@ function PostProcessing() {
       map: [],
       txt: [],
       log: [],
-      other: []
+      other: [],
+      tail: []
     };
 
     if (!Array.isArray(filesArray)) {
@@ -208,6 +213,49 @@ function PostProcessing() {
     }
   }, [parsedCpData, selectedLevel]);
 
+  const handleTailFileSelect = async (tailFile) => {
+    setIsLoadingTail(true);
+    setSelectedTailFile(tailFile);
+
+    // Find selected .cp and .geo files
+    const cpFile = selectedFiles.cp;
+    const geoFile = simulationData?.files?.geo?.[0] || selectedtailGEOFile;
+
+    if (!cpFile || !geoFile || !tailFile) {
+      alert('Please select .cp, .geo, and .tail files.');
+      setIsLoadingTail(false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('tail', tailFile.file || tailFile);
+    formData.append('cp', cpFile.file || cpFile);
+    formData.append('geo', geoFile.file || geoFile);
+
+    try {
+      const response = await fetchAPI('/compute_tail_downwash', {
+        method: 'POST',
+        body: formData
+      });
+      if (!response.ok) throw new Error('Failed to compute tail parameters');
+      const data = await response.json();
+      setTailPlaneParams(data);
+    } catch (err) {
+      alert('Error computing tail parameters: ' + err.message);
+      setTailPlaneParams(null);
+    }
+    setIsLoadingTail(false);
+  };
+
+
+  useEffect(() => {
+    if (selectedTailFile && selectedFiles.cp && (simulationData?.files?.geo?.[0] || selectedtailGEOFile)) {
+      handleTailFileSelect(selectedTailFile);
+    }
+    // eslint-disable-next-line
+  }, [selectedFiles.cp, selectedTailFile, selectedtailGEOFile]);
+
+
   // --- File Upload and Parsing ---
   const uploadAndParseFile = async (file, fileType) => {
     try {
@@ -259,10 +307,13 @@ function PostProcessing() {
     }
   };
 
+
+
   const handleOpenTextFile = async (file) => {
     // Check if already opened
     if (openedTextFiles.some(f => f.file.path === file.path)) {
       setActiveTextTab(file.path);
+      setIsEditing(true);
       return;
     }
     let content = '';
@@ -289,6 +340,7 @@ function PostProcessing() {
     }
     setOpenedTextFiles(prev => [...prev, { file, content }]);
     setActiveTextTab(file.path);
+    setIsEditing(true);
   };
 
   // --- File Selection Handler ---
@@ -711,6 +763,7 @@ function PostProcessing() {
       txt: [],
       log: [],
       csv: [],
+      tail: [],
       other: []
     };
     files.forEach(file => {
@@ -1336,13 +1389,7 @@ function PostProcessing() {
             </div>
           </div>
         </div>
-        <button
-          onClick={handleRemoveFolder}
-          className="m-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-          title="Close Folder"
-        >
-          Close Folder
-        </button>
+
         <div className="flex-1 overflow-y-auto p-4">
           {Object.entries(files).map(([fileType, fileList]) => {
             if (!Array.isArray(fileList) || fileList.length === 0) return null;
@@ -1357,12 +1404,14 @@ function PostProcessing() {
                     const isLoading = (fileType === 'cp' && isLoadingCP) ||
                       (fileType === 'forces' && isLoadingForces) ||
                       (fileType === 'dat' && isLoadingDAT);
+                    const isTailSelected = fileType === 'tail' && selectedTailFile && selectedTailFile.path === file.path;
+                    const isSelected = isFileSelected(file) && !isLoading && fileType !== 'tail';
                     return (
                       <div
                         key={index}
-                        className={`flex items-center p-2 rounded-lg cursor-pointer transition-all duration-200 ${isFileSelected(file)
+                        className={`flex items-center p-2 rounded-lg cursor-pointer transition-all duration-200 ${isSelected || isTailSelected
                           ? 'bg-slate-100 border border-slate-300 shadow-sm'
-                          : ['dat', 'cp', 'forces'].includes(fileType)
+                          : ['dat', 'cp', 'forces', 'tail'].includes(fileType)
                             ? 'hover:bg-gray-50 border border-transparent'
                             : 'border border-transparent text-gray-500 cursor-default'
                           } ${isLoading ? 'opacity-60 cursor-wait' : ''}`}
@@ -1371,6 +1420,8 @@ function PostProcessing() {
                             handleOpenTextFile(file);
                           } else if (!isLoading && ['dat', 'cp', 'forces'].includes(fileType)) {
                             handleFileSelect(file);
+                          } else if (fileType === 'tail') {
+                            setSelectedTailFile(file);
                           }
                         }}
                         title={file.name}
@@ -1379,10 +1430,45 @@ function PostProcessing() {
                           {isLoading ? '⏳' : getFileIcon(file.name)}
                         </span>
                         <span className="flex-1 text-sm truncate">{file.name}</span>
-                        {isFileSelected(file) && !isLoading && <span className="text-slate-600 text-sm font-medium">✓</span>}
-                      </div>
+                        {/* Show marker for selected .tail */}
+                        {isTailSelected && <span className="text-blue-600 text-sm font-medium ml-2">✓</span>}
+                        {/* Show marker for selected .dat, .cp, .forces */}
+                        {isSelected && <span className="text-slate-600 text-sm font-medium">✓</span>}
+                        {/* Clear button for selected .dat, .cp, .forces */}
+                        {isSelected && (
+                          <button
+                            className="ml-2 text-xs text-gray-400 hover:text-red-500"
+                            title="Clear selection"
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (fileType === 'dat') {
+                                setSelectedFiles(prev => {
+                                  let newDat = Array.isArray(prev.dat)
+                                    ? prev.dat.filter(f => f.path !== file.path)
+                                    : null;
+                                  if (Array.isArray(newDat) && newDat.length === 0) newDat = null;
+                                  return { ...prev, dat: newDat };
+                                });
+                                setParsedDatData(null);
+                                setIsLoadingDAT(false);
+                              } else if (fileType === 'cp') {
+                                setSelectedFiles(prev => ({ ...prev, cp: null }));
+                                setParsedCpData(null);
+                                setSections([]);
+                                setSelectedLevel('');
+                                setSelectedSection('');
+                                setIsLoadingCP(false); // <-- Add this line
+                              } else if (fileType === 'forces') {
+                                setSelectedFiles(prev => ({ ...prev, forces: null }));
+                                setParsedForcesData(null);
+                                setIsLoadingForces(false); // <-- Add this line
+                              }
+                            }}
+                          >✕</button>
+                        )}                     </div>
                     );
                   })}
+
                 </div>
               </div>
             );
@@ -1390,6 +1476,30 @@ function PostProcessing() {
         </div>
       </div>
     );
+  };
+
+
+  const [editedText, setEditedText] = useState({});
+  const [isEditing, setIsEditing] = useState(false);
+
+  const handleTextFileChange = (path, newContent) => {
+    setEditedText(prev => ({
+      ...prev,
+      [path]: newContent
+    }));
+  };
+
+  const handleSaveTextFile = (fileObj) => {
+    // Save changes to openedTextFiles in memory
+    setOpenedTextFiles(prev =>
+      prev.map(f =>
+        f.file.path === fileObj.file.path
+          ? { ...f, content: editedText[fileObj.file.path] }
+          : f
+      )
+    );
+    setIsEditing(false);
+    alert('File changes saved in memory for this session.');
   };
 
   const renderTextFileViewer = () => {
@@ -1400,22 +1510,25 @@ function PostProcessing() {
         </div>
       );
     }
-    const rawContent = openedTextFiles.find(f => f.file.path === activeTextTab)?.content || '';
-    // Replace spaces and tabs with visible symbols
-    const visibleContent = rawContent
-      .replace(/ /g, '·')      // Show spaces as ·
-      .replace(/\t/g, '→   '); // Show tabs as → and some spaces
+    const activeFileObj = openedTextFiles.find(f => f.file.path === activeTextTab);
+    const rawContent = isEditing
+      ? editedText[activeTextTab] ?? activeFileObj?.content ?? ''
+      : activeFileObj?.content ?? '';
 
+    // For visualisation: show spaces as · and tabs as →
+    const visibleContent = rawContent
+      .replace(/ /g, '·')
+      .replace(/\t/g, '→   ');
 
     return (
-      <div className="h-full flex flex-col bg-white">
+      <div className="h-full flex flex-col items-center bg-white">
         {/* Tabs */}
-        <div className="flex border-b border-blue-200 bg-blue-50">
+        <div className="flex border-b border-blue-200 bg-blue-50 w-full max-w-3xl">
           {openedTextFiles.map(({ file }, idx) => (
             <div
               key={file.path}
               className={`px-4 py-2 cursor-pointer border-r border-blue-100 ${activeTextTab === file.path ? 'bg-white font-semibold text-blue-700' : 'text-gray-700 hover:bg-blue-100'}`}
-              onClick={() => setActiveTextTab(file.path)}
+              onClick={() => { setActiveTextTab(file.path); setIsEditing(true); }}
             >
               {file.name}
               <button
@@ -1434,13 +1547,54 @@ function PostProcessing() {
             </div>
           ))}
         </div>
-        {/* Text Area */}
-        <div className="flex-1 overflow-auto p-4 bg-white font-mono text-sm whitespace-pre-wrap border-t border-blue-100">
-          {openedTextFiles.find(f => f.file.path === activeTextTab)?.content || ''}
+        {/* Editable Text Area */}
+        <div className="flex-1 flex flex-col p-4 bg-white font-mono text-sm w-full max-w-3xl">
+          {isEditing ? (
+            <>
+              <textarea
+                className="flex-1 w-full border border-blue-200 rounded p-2 font-mono text-sm resize-none"
+                value={editedText[activeTextTab] ?? activeFileObj?.content ?? ''}
+                onChange={e => handleTextFileChange(activeTextTab, e.target.value)}
+                style={{ minHeight: 0, height: '60vh' }}
+              />
+              <div className="mt-2 flex gap-2 justify-end">
+                <button
+                  className="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  onClick={() => handleSaveTextFile(activeFileObj)}
+                >
+                  Save
+                </button>
+                <button
+                  className="px-4 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                  onClick={() => setIsEditing(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <pre
+                className="flex-1 w-full whitespace-pre-wrap font-mono text-sm bg-white"
+                style={{ minHeight: 0, height: '60vh' }}
+              >
+                {visibleContent}
+              </pre>
+              <div className="mt-2 flex justify-end">
+                <button
+                  className="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  onClick={() => setIsEditing(true)}
+                >
+                  Edit
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
   };
+
 
   // --- MAIN RETURN ---
   return (
@@ -1479,6 +1633,13 @@ function PostProcessing() {
             Contour Plots
           </button>
           <button
+            onClick={handleRemoveFolder}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+            title="Close Folder"
+          >
+            Close Folder
+          </button>
+          <button
             onClick={() => { setSelectedFiles({ dat: null, cp: null, forces: null }); navigate('/') }}
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
           >
@@ -1487,11 +1648,16 @@ function PostProcessing() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* Main layout: File Explorer | Main Plot | Right Sidebar */}
+      <div className="flex flex-1 overflow-hidden h-full w-full">
         {/* File Explorer Sidebar */}
         <div
-          className={`bg-white border-r border-blue-200 transition-all duration-300 ${isExplorerOpen ? 'w-80' : 'w-0'} overflow-hidden relative`}
-          style={{ width: isExplorerOpen ? `${explorerWidth}px` : '0px' }}
+          className={`bg-white border-r border-blue-200 transition-all duration-300 ${isExplorerOpen ? '' : 'w-0'} overflow-auto`}
+          style={{
+            width: isExplorerOpen ? `${explorerWidth}px` : '0px',
+            minWidth: isExplorerOpen ? `${explorerWidth}px` : '0px',
+            position: 'relative'
+          }}
         >
           {renderFileExplorer()}
           {/* Resize Handle */}
@@ -1500,12 +1666,21 @@ function PostProcessing() {
               ref={resizeRef}
               className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-400 transition-colors duration-200 ${isResizing ? 'bg-blue-400' : 'bg-blue-200'}`}
               onMouseDown={handleMouseDown}
+              style={{ right: 0, top: 0 }}
             />
           )}
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col">
+        <div
+          className="flex-1 flex flex-col relative h-full min-w-0"
+          style={{
+            transition: 'margin-left 0.3s',
+            height: '100%',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
           {isTextMode ? (
             renderTextFileViewer()
           ) : showMesh && meshData ? (
@@ -1588,10 +1763,17 @@ function PostProcessing() {
           )}
         </div>
 
-
-
         {/* Right Sidebar */}
-        <div className="w-80 bg-white border-l border-blue-200 flex flex-col overflow-y-auto">
+        <div
+          className="bg-white border-l border-blue-200 flex flex-col overflow-y-auto"
+          style={{
+            minWidth: '320px',
+            width: '320px',
+            maxWidth: '400px',
+            height: '100%',
+            zIndex: 10
+          }}
+        >
           {/* Controls Section */}
           <div className="p-4 border-b border-blue-200 bg-blue-50">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Analysis Tools</h3>
@@ -1708,16 +1890,6 @@ function PostProcessing() {
                   <span className="font-mono text-gray-900 text-sm">{coefficients.CM?.toFixed(6) || 'N/A'}</span>
                 </div>
               </div>
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Epsilon (Downwash Angle)</span>
-                  <span className="font-mono text-gray-900 text-sm">
-                    {epsilon !== null && !isNaN(epsilon) ? epsilon.toFixed(5) : 'N/A'}
-                  </span>
-                </div>
-              </div>
-
-
             </div>
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Drag Breakdown</h3>
             <div className="space-y-3">
@@ -1741,6 +1913,72 @@ function PostProcessing() {
               </div>
             </div>
           </div>
+
+          {/* Tail Plane Parameters Section */}
+          <div className="p-4">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Tail Plane Parameters</h3>
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Upload Tail Geometry (.GEO)</label>
+                <div className="relative w-full">
+                  <input
+                    type="file"
+                    accept=".geo"
+                    id="tail-geo-upload"
+                    className="hidden"
+                    onChange={e => {
+                      if (e.target.files && e.target.files[0]) {
+                        setSelectedtailGEOFile({ ...e.target.files[0], file: e.target.files[0], name: e.target.files[0].name });
+                        setTimeout(() => {
+                          if (selectedTailFile && selectedFiles.cp) {
+                            handleTailFileSelect(selectedTailFile);
+                          }
+                        }, 0);
+                      }
+                    }}
+                    disabled={isLoadingTail}
+                  />
+                  <label
+                    htmlFor="tail-geo-upload"
+                    className={`flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 cursor-pointer transition-all duration-200 font-medium border border-blue-700
+                      ${isLoadingTail ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    style={{ minWidth: '180px' }}
+                  >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M4 12l8-8 8 8M12 4v12" />
+                    </svg>
+                    {isLoadingTail ? 'Uploading...' : 'Choose .GEO File'}
+                  </label>
+                </div>
+                {isLoadingTail && <div className="text-blue-600 mt-2 text-xs">Computing tail parameters...</div>}
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-700">Downwash Angle (Epsilon)</span>
+                  <span className="font-mono text-gray-900 text-sm">
+                    {epsilon !== null && !isNaN(epsilon) ? epsilon.toFixed(5) : 'N/A'}
+                  </span>
+                </div>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-700">Downwash Angle LLT</span>
+                  <span className="font-mono text-gray-900 text-sm">
+                    {tailPlaneParams?.effective_epsilon_deg !== undefined ? tailPlaneParams.effective_epsilon_deg.toFixed(5) : 'N/A'}
+                  </span>
+                </div>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-700">Local Mach Number</span>
+                  <span className="font-mono text-gray-900 text-sm">
+                    {tailPlaneParams?.avg_local_mach !== undefined ? tailPlaneParams.avg_local_mach.toFixed(5) : 'N/A'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

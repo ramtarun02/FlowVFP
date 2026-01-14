@@ -215,7 +215,7 @@ function PropellerWingForm() {
           h.includes('cl') || h.toLowerCase() === 'lift'
         );
         cdIndex = headers.findIndex(h =>
-          h.includes('cd') || h.toLowerCase() === 'drag'
+          h.includes('cdtotibe') || h.toLowerCase() === 'drag'
         );
         if (alphaIndex !== -1 && clIndex !== -1 && cdIndex !== -1) {
           headerIndex = i;
