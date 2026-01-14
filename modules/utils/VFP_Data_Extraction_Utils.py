@@ -163,16 +163,16 @@ def extract_data(file_path_forces, file_path_wavedrag):
                 val_str = extract_value_str_preserve_precision(line, 'Total wave drag for block is CDW(tot)')
                 val = float(val_str)
                 if count == 0:
-                    data['CDW_Upper'] = val_str*0.0001
+                    data['CDW_Upper'] = val*0.0001
                     cdw_upper_val = val
                 elif count == 1:
-                    data['CDW_Lower'] = val_str*0.0001
+                    data['CDW_Lower'] = val*0.0001
                     cdw_lower_val = val
                 count += 1
                 if count == 2:
                     break
 
     if data['CDW_Upper'] is not None and data['CDW_Lower'] is not None:
-        data['CDW(tot)'] = cdw_upper_val + cdw_lower_val
+        data['CDW(tot)'] = (cdw_upper_val + cdw_lower_val)*0.0001
 
     return data

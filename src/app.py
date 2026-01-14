@@ -919,6 +919,70 @@ def parse_dat():
         }), 500
 
 
+@app.route('/compute_tail_downwash', methods=['POST'])
+def compute_tail_downwash():
+    """
+    Receives .tail, .GEO, and .cp files, computes downwash using downwashLLT,
+    and returns effective_epsilon_deg and avg_local_mach.
+    """
+    try:
+        tail_file = request.files.get('tail')
+        geo_file = request.files.get('geo')
+        cp_file = request.files.get('cp')
+
+        # Validate all files are present and have filenames
+        if not tail_file or not geo_file or not cp_file:
+            return jsonify({'error': 'Missing one or more required files (.tail, .GEO, .cp)'}), 400
+        if not tail_file.filename or not geo_file.filename or not cp_file.filename:
+            return jsonify({'error': 'One or more files have empty filename'}), 400
+
+        import tempfile
+
+        # Write files to temporary files for processing
+        with tempfile.NamedTemporaryFile(delete=False) as tf_tail, \
+             tempfile.NamedTemporaryFile(delete=False) as tf_geo, \
+             tempfile.NamedTemporaryFile(delete=False) as tf_cp:
+            tf_tail.write(tail_file.read())
+            tf_geo.write(geo_file.read())
+            tf_cp.write(cp_file.read())
+            tf_tail.flush()
+            tf_geo.flush()
+            tf_cp.flush()
+
+            # Import and run downwashLLT
+            try:
+                from modules.vfp_processing.downwashLLT import compute_downwash_LLT
+            except Exception as import_err:
+                logger.error(f"Import error in downwashLLT: {import_err}")
+                return jsonify({'error': f'Import error: {import_err}'}), 500
+
+            try:
+                results = compute_downwash_LLT(
+                    tf_cp.name, tf_geo.name, tf_tail.name, save_plots=False
+                )
+            except Exception as compute_err:
+                logger.error(f"Error in compute_downwash_LLT: {compute_err}")
+                return jsonify({'error': f'Computation error: {compute_err}'}), 500
+
+        # Clean up temp files
+        try:
+            os.unlink(tf_tail.name)
+            os.unlink(tf_geo.name)
+            os.unlink(tf_cp.name)
+        except Exception as cleanup_err:
+            logger.warning(f"Could not clean up temp files: {cleanup_err}")
+
+        # Return only the required parameters
+        return jsonify({
+            'effective_epsilon_deg': results.get('effective_epsilon_deg'),
+            'avg_local_mach': results.get('avg_local_mach')
+        })
+
+    except Exception as e:
+        logger.error(f"Error in compute_tail_downwash: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 
 @app.route('/boundary_layer_data', methods=['POST'])
 def boundary_layer_data():

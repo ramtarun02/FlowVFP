@@ -1,0 +1,37 @@
+# CRM Tailplane Downwash Calculation Input File (.tail)
+# -----------------------------------------------------
+# This file provides all input parameters for the downwash LLT computation.
+# Each parameter acronym line is followed by a line of values.
+# Lines starting with '#' are comments and will be ignored.
+# Edit only the values, not the parameter names.
+# Units are indicated in square brackets [].
+# -----------------------------------------------------
+
+TITLE
+CRM Tailplane Downwash Calculation
+
+# Wing and Tail Lift Coefficient from VFP [dimensionless]
+CLVFP
+0.392130
+
+# Wing and Tail Root Chord [m]
+CWING   CTAIL
+12.50   6.45
+
+# Freestream Properties: Density [kg/m^3], Mach [-], Temperature [K], Gamma [-], Gas Constant [J/kg/K]
+RHO     MACH    TINF    GAMMA   R
+1.225   0.80    288.15  1.4     287.0
+
+# Tail Quarter-Chord Location [m]
+XT      YT      ZT
+30.5    0.0     1.80
+
+# Horseshoe Vortex Trailing Length [m], Numerical Epsilon
+LTRAIL  EPS
+1000.0  1e-6
+
+# Wing and Tail Quarter-Chord Sweep [deg]
+LAMW    LAMT
+35      41
+
+# End of file
