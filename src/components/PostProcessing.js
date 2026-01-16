@@ -219,7 +219,7 @@ function PostProcessing() {
 
     // Find selected .cp and .geo files
     const cpFile = selectedFiles.cp;
-    const geoFile = simulationData?.files?.geo?.[0] || selectedtailGEOFile;
+    const geoFile = selectedtailGEOFile;
 
     if (!cpFile || !geoFile || !tailFile) {
       alert('Please select .cp, .geo, and .tail files.');

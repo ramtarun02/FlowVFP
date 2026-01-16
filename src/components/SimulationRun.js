@@ -86,9 +86,22 @@ const SimulationRun = () => {
       // so continue to attempt parsing numbers below.
     }
 
-    // Pattern to match the format: [number] [iteration] [residual]
-    const residualPattern = /^\s*\d+\s+(\d+)\s*(-?[\d.eE+-]+)\s*$/i;
-    const match = message.match(residualPattern);
+    // --- NEW: Support multiple formats for residual lines ---
+    // 1. [VFP-BAT] 1 3750-0.0000013
+    // 2. [VFP-BAT] 1 3820 0.0000032
+    // 3. Old format: <number> <iteration> <residual>
+    // Try all patterns
+
+    // Pattern 1: [VFP-BAT] 1 <iteration>-<residual>
+    let match = message.match(/\[VFP-BAT\]\s+\d+\s+(\d+)-(-?[\d.eE+-]+)/i);
+    if (!match) {
+      // Pattern 2: [VFP-BAT] 1 <iteration> <residual>
+      match = message.match(/\[VFP-BAT\]\s+\d+\s+(\d+)\s+(-?[\d.eE+-]+)/i);
+    }
+    if (!match) {
+      // Pattern 3: <number> <iteration> <residual>
+      match = message.match(/^\s*\d+\s+(\d+)\s+(-?[\d.eE+-]+)\s*$/i);
+    }
 
     if (match) {
       const iteration = parseInt(match[1], 10);

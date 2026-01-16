@@ -5,6 +5,7 @@ import Plot from 'react-plotly.js';
 import { useSimulationData } from "../components/SimulationDataContext";
 
 import { fetchAPI } from '../utils/fetch';
+import { add } from "numeric";
 
 function computeKS0D(CL0, CD0, A) {
   if (!A || !CL0 || !CD0) return "";
@@ -45,6 +46,7 @@ function PropellerWingForm() {
   const [selectedCsvFile, setSelectedCsvFile] = useState(null);
   const [polarData, setPolarData] = useState(null);
   const { simulationData } = useSimulationData();
+  const [cd0WithDrag, setCd0WithDrag] = useState([]);
 
   useEffect(() => {
     if (simulationData) {
@@ -67,6 +69,7 @@ function PropellerWingForm() {
     ALFAWI: "5",
     CL0: "0.5",
     CD0: "0.0230",
+    additionalDrag: "0.0",
     KS00: "0.001",
     TS00: "2.25",
     propLocation: "0.5",
@@ -151,6 +154,7 @@ function PropellerWingForm() {
     ALFAWI: [5],
     CL0: [0.5],
     CD0: [0.0230],
+    additionalDrag: 0,
     KS00: [0.001],
     TS00: [computeTS0D(0.5, 0.0230, 8)]
   });
@@ -303,9 +307,20 @@ function PropellerWingForm() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    if (name === "additionalDrag") {
+      const dragVal = parseFloat(value) || 0;
+      setArrayInputs(prev => ({ ...prev, additionalDrag: dragVal }));
+    }
   };
 
   const handleArrayChange = (name, value) => {
+    if (name === 'additionalDrag') {
+      const dragValue = parseFloat(value) || 0;
+      setArrayInputs(prev => ({ ...prev, additionalDrag: dragValue }));
+      setFormData(prev => ({ ...prev, [name]: value }));
+      return;
+    }
+
     const values = value
       .replace(/,/g, ' ')
       .split(/\s+/)
@@ -320,11 +335,14 @@ function PropellerWingForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const addDrag = parseFloat(formData.additionalDrag) || 0;
+      const cd0WithDragArr = arrayInputs.CD0.map(cd0 => cd0 + addDrag);
+      setCd0WithDrag(cd0WithDragArr); // <-- Save for display/export
       const payload = {
         ...formData,
         ALFAWI: arrayInputs.ALFAWI,
         CL0: arrayInputs.CL0,
-        CD0: arrayInputs.CD0,
+        CD0: cd0WithDragArr,
         KS00: arrayInputs.KS00,
         TS00: arrayInputs.TS00
       };
@@ -353,6 +371,9 @@ function PropellerWingForm() {
     setShowPlots(false);
   };
 
+
+
+  const cd0Display = cd0WithDrag.length ? cd0WithDrag : arrayInputs.CD0;
   const handleExportResults = (format = 'csv') => {
     if (!result || !Array.isArray(result) || result.length === 0) {
       alert("No results to export.");
@@ -363,7 +384,7 @@ function PropellerWingForm() {
       index + 1,
       arrayInputs.ALFAWI[index]?.toFixed(2) || 'N/A',
       arrayInputs.CL0[index]?.toFixed(3) || 'N/A',
-      arrayInputs.CD0[index]?.toFixed(4) || 'N/A',
+      cd0Display[index]?.toFixed(4) || 'N/A',
       arrayInputs.KS00[index]?.toFixed(4) || 'N/A',
       res.CZDwf?.toFixed(5) || 'N/A',
       Math.abs(res.CXDwf)?.toFixed(5) || 'N/A'
@@ -501,6 +522,7 @@ function PropellerWingForm() {
   });
 
 
+
   return (
     <div className="flex h-screen bg-blue-50 font-sans">
       {/* Left Panel: CSV Files + Input Fields */}
@@ -589,6 +611,10 @@ function PropellerWingForm() {
               <p className="text-xs text-gray-500 mt-1">Current values: [{arrayInputs.CD0.map(val => val.toFixed(3)).join(', ')}]</p>
             </div>
             <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Additional Drag to be added to CD0</label>
+              <input type="number" step="any" name="additionalDrag" value={formData.additionalDrag} onChange={(e) => handleArrayChange("additionalDrag", e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 text-sm" />
+            </div>
+            <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">KS00 (Auto-computed)</label>
               <input type="text" value={arrayInputs.KS00.map(val => val.toFixed(5)).join(', ')} readOnly className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 text-sm cursor-not-allowed" />
             </div>
@@ -647,7 +673,7 @@ function PropellerWingForm() {
                           <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.KS00[index]?.toFixed(4) || 'N/A'}</td>
                           <td className="px-2 py-2 text-center text-gray-700">{res.theta_s?.toFixed(5) || 'N/A'}</td>
                           <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.CL0[index]?.toFixed(3) || 'N/A'}</td>
-                          <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.CD0[index]?.toFixed(4) || 'N/A'}</td>
+                          <td className="px-2 py-2 text-center text-gray-700">{cd0Display[index]?.toFixed(4) || 'N/A'}</td>
                           <td className="px-2 py-2 text-center font-medium text-blue-600">{res.CZDwf?.toFixed(5) || 'N/A'}</td>
                           <td className="px-2 py-2 text-center font-medium text-red-600">{Math.abs(res.CXDwf).toFixed(5) || 'N/A'}</td>
                         </tr>
