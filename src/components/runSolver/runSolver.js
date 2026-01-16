@@ -418,7 +418,7 @@ function RunSolver() {
             </div>
           </div>
           <div className="flex items-center gap-8">
-            <a href="/docs" className="text-base text-gray-700 hover:text-blue-700 flex items-center gap-1">
+            <a href="https://github.com/ramtarun02/VFP-2025" className="text-base text-gray-700 hover:text-blue-700 flex items-center gap-1">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M4 4h16v16H4z" /></svg>
               Documentation
             </a>
@@ -440,7 +440,7 @@ function RunSolver() {
             />
             {/* --- End Replace --- */}
             <div className="flex items-center gap-3">
-              <img src="/avatar-drdavide.png" alt="Dr. DDP" className="w-9 h-9 rounded-full border" />
+              <img src="/VFP-2025/cranfield-logo.svg" alt="Dr. DDP" className="w-9 h-9 rounded-full border" />
               <span className="text-base text-gray-800 font-semibold">Dr. Davide</span>
             </div>
           </div>
@@ -491,7 +491,7 @@ function RunSolver() {
                     <div className="text-xs text-blue-900">Primary aerodynamic surface</div>
                   </div>
                   <span className="ml-auto text-xs font-bold text-blue-700 bg-blue-100 rounded px-2 py-0.5 flex items-center gap-1">
-                    Optional
+                    Required
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><circle cx="12" cy="8" r="1" /></svg>
                   </span>
                 </div>
