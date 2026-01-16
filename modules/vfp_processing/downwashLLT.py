@@ -2,8 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from modules.vfp_processing.readVFP import readCP as cp
-from modules.vfp_processing.readVFP import readGEO as geo
+from vfp_processing.readVFP import readCP as cp
+from vfp_processing.readVFP import readGEO as geo
 
 def parse_tail_input(tailflowInput):
     """
