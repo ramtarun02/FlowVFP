@@ -7,6 +7,8 @@
     "allowedHosts": "all"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@tabler/icons-react": "^3.36.1",
     "ajv": "^8.17.1",
     "chart.js": "^4.5.0",
     "d3": "^7.9.0",

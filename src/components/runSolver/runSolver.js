@@ -409,11 +409,17 @@ function RunSolver() {
       <header className="bg-white border-b border-gray-200" style={{ boxShadow: "0 2px 8px 0 rgba(16,30,54,.04)" }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between px-8 py-5">
           <div className="flex items-center gap-3">
-            <span className="bg-blue-600 rounded-lg p-2 flex items-center justify-center">
-              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M2 16l10-8 10 8" /></svg>
+            {/* VFP Logo instead of blue icon */}
+            <span className="rounded-lg flex items-center justify-center">
+              <img
+                src="/VFP-2025/flowVFP-logo.png"
+                alt="FlowVFP Logo"
+                className="w-10 h-10 object-contain"
+                style={{ minWidth: 40 }}
+              />
             </span>
             <div>
-              <div className="font-bold text-2xl text-gray-900">FlowVFP CFD</div>
+              <div className="font-bold text-2xl text-gray-900">FlowVFP Solver</div>
               <div className="text-sm text-gray-500">Viscous Full Potential Flow Solver v2.0</div>
             </div>
           </div>
@@ -422,7 +428,6 @@ function RunSolver() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M4 4h16v16H4z" /></svg>
               Documentation
             </a>
-            {/* --- Replace History button with Import VFP Case --- */}
             <button
               type="button"
               className="text-base text-gray-700 hover:text-blue-700 flex items-center gap-1"
@@ -438,7 +443,6 @@ function RunSolver() {
               style={{ display: "none" }}
               onChange={handleImportVFP}
             />
-            {/* --- End Replace --- */}
             <div className="flex items-center gap-3">
               <img src="/VFP-2025/cranfield-logo.svg" alt="Dr. DDP" className="w-9 h-9 rounded-full border" />
               <span className="text-base text-gray-800 font-semibold">Dr. Davide</span>
@@ -446,7 +450,6 @@ function RunSolver() {
           </div>
         </div>
       </header>
-
       {/* STEPPER & BACK BUTTON */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-7xl mx-auto flex items-center justify-between px-8 py-4">

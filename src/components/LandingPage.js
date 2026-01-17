@@ -1,101 +1,210 @@
 import React from "react";
 import { Link } from "react-router-dom";
+// Heroicons for Key Capabilities
+import { RocketLaunchIcon, PaperAirplaneIcon, CubeTransparentIcon, ChartBarIcon } from "@heroicons/react/24/solid";
+// Tabler Icons (for module cards, install with: npm install @tabler/icons-react)
+import { IconPlaneTilt, IconDelta, IconWaveSine } from "@tabler/icons-react";
 
-function LandingPage() {
+const moduleGradients = [
+  "bg-gradient-to-br from-[#eaf6ff] via-[#d6eaff] to-[#c3e3ff]", // Geometry Module
+  "bg-gradient-to-br from-[#eafcff] via-[#d6f7ff] to-[#c3f0ff]", // VFP Solver
+  "bg-gradient-to-br from-[#eafffa] via-[#d6fff7] to-[#c3ffe9]", // VFP Post Module
+];
+
+export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-gray-100 relative">
-      {/* Logo Container - Top Left Corner */}
-      <div className="absolute top-4 left-8 z-10 flex flex-col items-start">
-        <img
-          src="/VFP-2025/cranfield-logo.svg"
-          alt="/Cranfield University Logo"
-          className="w-48 mb-3 transition-transform duration-300 hover:scale-105"
-        />
-        {/* <button className="bg-gray-200 hover:bg-gray-300 px-4 py-2 border-0 rounded-lg cursor-pointer font-bold text-sm shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5">
-          Instructions
-        </button> */}
-      </div>
-
-      {/* Main Layout Container */}
-      <div className="min-h-screen flex flex-col">
-        {/* Title Section - Top Center */}
-        <div className="pt-16 pb-8 flex justify-center">
-          <h1 className="text-3xl lg:text-4xl xl:text-5xl font-bold text-blue-700 text-center font-serif leading-tight max-w-4xl">
-            Viscous Full Potential Flow Solver
-          </h1>
-        </div>
-
-        {/* Modules Section - Center/Slightly Below Center */}
-        <div className="flex-1 flex items-center justify-center px-8">
-          <div className="bg-slate-200 p-8 lg:p-12 rounded-3xl shadow-xl">
-            <div className="grid grid-cols-3 gap-8 lg:gap-12 xl:gap-16">
-              {/* Geometry Module */}
-              <Link
-                to="/geometry"
-                className="group flex flex-col items-center text-decoration-none transform transition-all duration-300 hover:scale-105 hover:-translate-y-2"
-              >
-                <div className="bg-white w-64 h-48 lg:w-72 lg:h-52 xl:w-80 xl:h-56 rounded-xl shadow-lg group-hover:shadow-2xl transition-all duration-300 overflow-hidden">
-                  <img
-                    src="/VFP-2025/Geometry.png"
-                    alt="Geometry Module"
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                </div>
-                <p className="mt-3 text-base lg:text-lg font-bold text-blue-700 group-hover:text-blue-800 transition-colors duration-200 tracking-wide text-center">
-                  GEOMETRY MODULE
-                </p>
-              </Link>
-
-              {/* Run VFP Solver */}
-              <Link
-                to="/run-solver"
-                className="group flex flex-col items-center text-decoration-none transform transition-all duration-300 hover:scale-105 hover:-translate-y-2"
-              >
-                <div className="bg-white w-64 h-48 lg:w-72 lg:h-52 xl:w-80 xl:h-56 rounded-xl shadow-lg group-hover:shadow-2xl transition-all duration-300 overflow-hidden">
-                  <img
-                    src="/VFP-2025/solver.PNG"
-                    alt="Run VFP Solver"
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                </div>
-                <p className="mt-3 text-base lg:text-lg font-bold text-blue-700 group-hover:text-blue-800 transition-colors duration-200 tracking-wide text-center">
-                  VFP SOLVER
-                </p>
-              </Link>
-
-              {/* Post Processing Module */}
-              <Link
-                to="/post-processing"
-                className="group flex flex-col items-center text-decoration-none transform transition-all duration-300 hover:scale-105 hover:-translate-y-2"
-              >
-                <div className="bg-white w-64 h-48 lg:w-72 lg:h-52 xl:w-80 xl:h-56 rounded-xl shadow-lg group-hover:shadow-2xl transition-all duration-300 overflow-hidden">
-                  <img
-                    src="/VFP-2025/postprocess.png"
-                    alt="Post Processing Module"
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                </div>
-                <p className="mt-3 text-base lg:text-lg font-bold text-blue-700 group-hover:text-blue-800 transition-colors duration-200 tracking-wide text-center">
-                  VFP POST MODULE
-                </p>
-              </Link>
+    <div
+      className="min-h-screen flex flex-col"
+      style={{
+        background: "radial-gradient(ellipse 120% 100% at 50% 0%, #f5f9fd 60%, #eaf6ff 100%)",
+      }}
+    >
+      {/* Header */}
+      <header
+        className="w-[96%] mx-auto mt-6 mb-2 flex items-center justify-between px-10 py-4 rounded-b-2xl shadow-lg"
+        style={{
+          background: "linear-gradient(90deg, #f7fbff 80%, #eaf6ff 100%)",
+          boxShadow: "0 4px 24px 0 rgba(60,120,180,0.07)",
+          minHeight: "88px",
+          height: "88px",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <img
+            src="/VFP-2025/flowVFP-logo.png"
+            alt="FlowVFP Logo"
+            className="h-14 w-auto max-h-[100px]"
+            style={{ minWidth: 56, objectFit: "contain" }}
+          />
+          <div className="flex flex-col justify-center h-full">
+            <div className="text-2xl font-bold text-[#142d4c] leading-tight flex items-center h-full">
+              FlowVFP Solver
             </div>
+            <div className="text-sm text-[#3a5a7c]">Aircraft Conceptual Design Tool</div>
+          </div>
+        </div>
+        <nav className="flex gap-12 text-base font-medium text-[#142d4c]">
+          <a href="#" className="hover:text-[#1e5bb8] transition-colors">Documentation</a>
+          <a href="#" className="hover:text-[#1e5bb8] transition-colors">Research</a>
+          <a href="#" className="hover:text-[#1e5bb8] transition-colors">Contact</a>
+        </nav>
+      </header>
+
+      {/* Main Title */}
+      <main className="flex flex-col items-center w-full">
+        <h1 className="mt-8 text-5xl font-extrabold text-[#142d4c] text-center leading-tight drop-shadow-md">
+          Viscous Full Potential Flow Solver
+        </h1>
+        <p className="mt-4 text-lg text-[#3a5a7c] text-center max-w-3xl">
+          Advanced computational framework for rapid flow analysis in aircraft conceptual design, integrating geometry processing, viscous full potential solving, and comprehensive post-processing capabilities.
+        </p>
+
+        {/* Modules Cards */}
+        <div className="flex justify-center gap-8 mt-12 w-full">
+          {/* Geometry Module */}
+          <div className={`${moduleGradients[0]} rounded-2xl shadow-lg w-[370px] h-[340px] flex flex-col items-center pt-10 pb-8 px-6 border border-[#e0eaf6]`}>
+            <div className="flex items-center justify-center w-24 h-24 mb-4">
+              <IconPlaneTilt size={72} stroke={1.5} className="text-[#1e5bb8]" />
+            </div>
+            <div className="text-2xl font-bold text-[#142d4c] mb-2">Geometry Module</div>
+            <div className="text-base text-[#3a5a7c] text-center mb-6">
+              Parametric geometry definition and manipulation for aircraft configurations, supporting complex wing-body combinations and control surface deflections.
+            </div>
+            <Link to="/geometry" className="text-[#1e5bb8] font-medium text-base flex items-center gap-2 hover:underline">
+              Explore Module <span className="text-xl">&#8594;</span>
+            </Link>
+          </div>
+          {/* VFP Solver */}
+          <div className={`${moduleGradients[1]} rounded-2xl shadow-lg w-[370px] h-[340px] flex flex-col items-center pt-10 pb-8 px-6 border border-[#e0eaf6]`}>
+            <div className="flex items-center justify-center w-24 h-24 mb-4">
+              <IconDelta size={72} stroke={1.5} className="text-[#0ec3e0]" />
+            </div>
+            <div className="text-2xl font-bold text-[#142d4c] mb-2">FlowVFP</div>
+            <div className="text-base text-[#3a5a7c] text-center mb-6">
+              Core computational engine implementing viscous full potential equations for accurate transonic flow prediction with boundary layer coupling.
+            </div>
+            <Link to="/run-solver" className="text-[#1e5bb8] font-medium text-base flex items-center gap-2 hover:underline">
+              Explore Module <span className="text-xl">&#8594;</span>
+            </Link>
+          </div>
+          {/* VFP Post Module */}
+          <div className={`${moduleGradients[2]} rounded-2xl shadow-lg w-[370px] h-[340px] flex flex-col items-center pt-10 pb-8 px-6 border border-[#e0eaf6]`}>
+            <div className="flex items-center justify-center w-24 h-24 mb-4">
+              <IconWaveSine size={72} stroke={1.5} className="text-[#1ec3a7]" />
+            </div>
+            <div className="text-2xl font-bold text-[#142d4c] mb-2">VFP Post</div>
+            <div className="text-base text-[#3a5a7c] text-center mb-6">
+              Comprehensive post-processing and visualization suite for flow field analysis, force integration, and aerodynamic performance assessment.
+            </div>
+            <Link to="/post-processing" className="text-[#1e5bb8] font-medium text-base flex items-center gap-2 hover:underline">
+              Explore Module <span className="text-xl">&#8594;</span>
+            </Link>
           </div>
         </div>
 
-        {/* Footer Section - Bottom */}
-        <div className="pb-8 flex justify-center">
-          <p className="text-lg lg:text-xl font-bold text-gray-600 text-center max-w-2xl">
-            Developed by the Applied Aerodynamics Group
-          </p>
-        </div>
-      </div>
+        {/* Key Capabilities */}
+        <section className="w-full flex justify-center mt-16 mb-8">
+          {/* Immersive, sleeker container */}
+          <div
+            className="relative rounded-xl shadow-lg px-10 py-10 w-[1180px] border border-[#e0eaf6] flex flex-col items-center"
+            style={{
+              background: "linear-gradient(120deg, #f5f9fd 80%, #eaf6ff 100%)",
+              boxShadow: "0 8px 32px 0 rgba(60, 120, 180, 0.08)",
+              backdropFilter: "blur(2px)",
+            }}
+          >
+            {/* Decorative gradient blur circle */}
+            <div
+              className="absolute -top-16 left-1/2 -translate-x-1/2 w-[400px] h-[120px] rounded-full pointer-events-none"
+              style={{
+                background: "radial-gradient(circle, #eaf6ff 0%, #f5f9fd 80%, transparent 100%)",
+                filter: "blur(32px)",
+                opacity: 0.7,
+                zIndex: 0,
+              }}
+            />
+            <h2 className="text-2xl font-bold text-[#142d4c] text-center mb-14 z-10 tracking-tight">
+              Key Capabilities
+            </h2>
+            <div className="flex justify-between w-full z-10 -mt-4">
+              {/* Capability Card 1 */}
+              <div className="flex flex-col items-center w-1/4 px-2">
+                <div className="bg-[#0ec3e0] rounded-xl w-12 h-12 flex items-center justify-center shadow-md mb-4">
+                  <RocketLaunchIcon className="w-7 h-7 text-white" />
+                </div>
+                <div className="text-base font-semibold text-[#142d4c] mb-1 text-center">Rapid Flow Analysis</div>
+                <div className="text-sm text-[#3a5a7c] text-center leading-relaxed">
+                  Rapid Flow analysis enabling quick optimisation and conceptual studies using Potential Flows               </div>
+              </div>
+              {/* Capability Card 2 */}
+              <div className="flex flex-col items-center w-1/4 px-2">
+                <div className="bg-[#1e5bb8] rounded-xl w-12 h-12 flex items-center justify-center shadow-md mb-4">
+                  <PaperAirplaneIcon className="w-7 h-7 text-white" />
+                </div>
+                <div className="text-base font-semibold text-[#142d4c] mb-1 text-center">Viscous Coupling</div>
+                <div className="text-sm text-[#3a5a7c] text-center leading-relaxed">
+                  Integrated boundary layer modeling for accurate viscous effects prediction in conceptual design.
+                </div>
+              </div>
+              {/* Capability Card 3 */}
+              <div className="flex flex-col items-center w-1/4 px-2">
+                <div className="bg-[#232d3f] rounded-xl w-12 h-12 flex items-center justify-center shadow-md mb-4">
+                  <CubeTransparentIcon className="w-7 h-7 text-white" />
+                </div>
+                <div className="text-base font-semibold text-[#142d4c] mb-1 text-center">Parametric Geometry</div>
+                <div className="text-sm text-[#3a5a7c] text-center leading-relaxed">
+                  Flexible geometry representation enabling rapid configuration exploration and optimization studies.
+                </div>
+              </div>
+              {/* Capability Card 4 */}
+              <div className="flex flex-col items-center w-1/4 px-2">
+                <div className="bg-[#1ec3a7] rounded-xl w-12 h-12 flex items-center justify-center shadow-md mb-4">
+                  <ChartBarIcon className="w-7 h-7 text-white" />
+                </div>
+                <div className="text-base font-semibold text-[#142d4c] mb-1 text-center">Advanced Visualization</div>
+                <div className="text-sm text-[#3a5a7c] text-center leading-relaxed">
+                  Comprehensive post-processing tools for flow field visualization and aerodynamic performance metrics.
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
 
-      {/* Subtle background decorative elements */}
-      <div className="fixed top-20 right-20 w-24 h-24 bg-blue-100 rounded-full opacity-15 animate-pulse"></div>
-      <div className="fixed bottom-20 left-20 w-20 h-20 bg-blue-200 rounded-full opacity-20 animate-bounce"></div>
+      {/* Footer */}
+      <footer className="w-full bg-[#142d4c] mt-auto pt-10 pb-6 px-16">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <div className="bg-white rounded-lg w-14 h-14 flex items-center justify-center shadow">
+              <img src="/VFP-2025/flowVFP-logo.png" alt="VFP Flow Solver Icon" className="w-12 h-12 object-contain" />
+            </div>
+            <div>
+              <div className="text-lg font-bold text-white">FlowVFP Solver</div>
+              <div className="text-sm text-[#b3c2db]">Version 2.1</div>
+            </div>
+          </div>
+          <nav className="flex gap-12 text-base font-medium text-white">
+            <a href="#" className="hover:text-[#0ec3e0] transition-colors">Documentation</a>
+            <a href="#" className="hover:text-[#0ec3e0] transition-colors">Publications</a>
+            <a href="#" className="hover:text-[#0ec3e0] transition-colors">Support</a>
+          </nav>
+        </div>
+        <hr className="border-[#2e4a6f] mb-6" />
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-base font-bold text-white mb-1">
+              Developed by the Applied Aerodynamics Group
+            </div>
+            <div className="text-sm text-[#b3c2db]">
+              Cranfield University, School of Aerospace, Transport and Manufacturing
+            </div>
+          </div>
+          <div className="text-sm text-[#b3c2db] text-right">
+            © 2024 Cranfield University<br />
+            All rights reserved
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
-
-export default LandingPage;
