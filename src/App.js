@@ -11,8 +11,7 @@ import SimulationRun from "./components/SimulationRun";
 import BoundaryLayer from "./components/BoundaryLayerData";
 import ContourPlot from "./components/ContourPlot";
 import { SimulationDataProvider } from "./components/SimulationDataContext";
-
-
+import Research from "./components/Research";
 
 
 function App() {
@@ -30,6 +29,7 @@ function App() {
             <Route path="/post-processing/contour-plot" element={<ContourPlot />} />
             <Route path="/post-processing/boundary-layer" element={<BoundaryLayer />} />
             <Route path="/simulation-run" element={<SimulationRun />} />
+            <Route path="/research" element={<Research />} />
           </Routes>
         </Router>
       </SimulationDataProvider>

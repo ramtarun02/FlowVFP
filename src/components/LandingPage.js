@@ -1,8 +1,8 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 // Heroicons for Key Capabilities
 import { RocketLaunchIcon, PaperAirplaneIcon, CubeTransparentIcon, ChartBarIcon } from "@heroicons/react/24/solid";
-// Tabler Icons (for module cards, install with: npm install @tabler/icons-react)
+// Tabler Icons (for module cards)
 import { IconPlaneTilt, IconDelta, IconWaveSine } from "@tabler/icons-react";
 
 const moduleGradients = [
@@ -12,6 +12,33 @@ const moduleGradients = [
 ];
 
 export default function LandingPage() {
+  const navigate = useNavigate();
+
+  // Helper for module navigation
+  const moduleCards = [
+    {
+      gradient: moduleGradients[0],
+      icon: <IconPlaneTilt size={72} stroke={1.5} className="text-[#1e5bb8]" />,
+      title: "Geometry Module",
+      desc: "Parametric geometry definition and manipulation for aircraft configurations, supporting complex wing-body combinations and control surface deflections.",
+      link: "/geometry",
+    },
+    {
+      gradient: moduleGradients[1],
+      icon: <IconDelta size={72} stroke={1.5} className="text-[#0ec3e0]" />,
+      title: "FlowVFP",
+      desc: "Core computational engine implementing viscous full potential equations for accurate transonic flow prediction with boundary layer coupling.",
+      link: "/run-solver",
+    },
+    {
+      gradient: moduleGradients[2],
+      icon: <IconWaveSine size={72} stroke={1.5} className="text-[#1ec3a7]" />,
+      title: "VFP Post",
+      desc: "Comprehensive post-processing and visualization suite for flow field analysis, force integration, and aerodynamic performance assessment.",
+      link: "/post-processing",
+    },
+  ];
+
   return (
     <div
       className="min-h-screen flex flex-col"
@@ -44,8 +71,15 @@ export default function LandingPage() {
           </div>
         </div>
         <nav className="flex gap-12 text-base font-medium text-[#142d4c]">
-          <a href="#" className="hover:text-[#1e5bb8] transition-colors">Documentation</a>
-          <a href="#" className="hover:text-[#1e5bb8] transition-colors">Research</a>
+          <a href="https://github.com/ramtarun02/VFP-2025" className="hover:text-[#1e5bb8] transition-colors">Documentation</a>
+          <button
+            type="button"
+            className="hover:text-[#1e5bb8] transition-colors focus:outline-none"
+            style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}
+            onClick={() => navigate("/research")}
+          >
+            Research
+          </button>
           <a href="#" className="hover:text-[#1e5bb8] transition-colors">Contact</a>
         </nav>
       </header>
@@ -59,47 +93,39 @@ export default function LandingPage() {
           Advanced computational framework for rapid flow analysis in aircraft conceptual design, integrating geometry processing, viscous full potential solving, and comprehensive post-processing capabilities.
         </p>
 
-        {/* Modules Cards */}
+        {/* Interactive Modules Cards */}
         <div className="flex justify-center gap-8 mt-12 w-full">
-          {/* Geometry Module */}
-          <div className={`${moduleGradients[0]} rounded-2xl shadow-lg w-[370px] h-[340px] flex flex-col items-center pt-10 pb-8 px-6 border border-[#e0eaf6]`}>
-            <div className="flex items-center justify-center w-24 h-24 mb-4">
-              <IconPlaneTilt size={72} stroke={1.5} className="text-[#1e5bb8]" />
+          {moduleCards.map((mod, idx) => (
+            <div
+              key={mod.title}
+              tabIndex={0}
+              role="button"
+              aria-label={`Go to ${mod.title}`}
+              className={`
+                group cursor-pointer transition-all duration-200
+                ${mod.gradient}
+                rounded-2xl shadow-lg w-[370px] h-[340px] flex flex-col items-center pt-10 pb-8 px-6 border border-[#e0eaf6]
+                hover:scale-105 hover:shadow-2xl focus:scale-105 focus:shadow-2xl
+                hover:border-[#1e5bb8] focus:border-[#1e5bb8]
+                outline-none
+              `}
+              onClick={() => navigate(mod.link)}
+              onKeyDown={e => {
+                if (e.key === "Enter" || e.key === " ") navigate(mod.link);
+              }}
+            >
+              <div className="flex items-center justify-center w-24 h-24 mb-4">
+                {mod.icon}
+              </div>
+              <div className="text-2xl font-bold text-[#142d4c] mb-2">{mod.title}</div>
+              <div className="text-base text-[#3a5a7c] text-center mb-6">
+                {mod.desc}
+              </div>
+              <span className="text-[#1e5bb8] font-medium text-base flex items-center gap-2 group-hover:underline group-focus:underline">
+                Explore Module <span className="text-xl">&#8594;</span>
+              </span>
             </div>
-            <div className="text-2xl font-bold text-[#142d4c] mb-2">Geometry Module</div>
-            <div className="text-base text-[#3a5a7c] text-center mb-6">
-              Parametric geometry definition and manipulation for aircraft configurations, supporting complex wing-body combinations and control surface deflections.
-            </div>
-            <Link to="/geometry" className="text-[#1e5bb8] font-medium text-base flex items-center gap-2 hover:underline">
-              Explore Module <span className="text-xl">&#8594;</span>
-            </Link>
-          </div>
-          {/* VFP Solver */}
-          <div className={`${moduleGradients[1]} rounded-2xl shadow-lg w-[370px] h-[340px] flex flex-col items-center pt-10 pb-8 px-6 border border-[#e0eaf6]`}>
-            <div className="flex items-center justify-center w-24 h-24 mb-4">
-              <IconDelta size={72} stroke={1.5} className="text-[#0ec3e0]" />
-            </div>
-            <div className="text-2xl font-bold text-[#142d4c] mb-2">FlowVFP</div>
-            <div className="text-base text-[#3a5a7c] text-center mb-6">
-              Core computational engine implementing viscous full potential equations for accurate transonic flow prediction with boundary layer coupling.
-            </div>
-            <Link to="/run-solver" className="text-[#1e5bb8] font-medium text-base flex items-center gap-2 hover:underline">
-              Explore Module <span className="text-xl">&#8594;</span>
-            </Link>
-          </div>
-          {/* VFP Post Module */}
-          <div className={`${moduleGradients[2]} rounded-2xl shadow-lg w-[370px] h-[340px] flex flex-col items-center pt-10 pb-8 px-6 border border-[#e0eaf6]`}>
-            <div className="flex items-center justify-center w-24 h-24 mb-4">
-              <IconWaveSine size={72} stroke={1.5} className="text-[#1ec3a7]" />
-            </div>
-            <div className="text-2xl font-bold text-[#142d4c] mb-2">VFP Post</div>
-            <div className="text-base text-[#3a5a7c] text-center mb-6">
-              Comprehensive post-processing and visualization suite for flow field analysis, force integration, and aerodynamic performance assessment.
-            </div>
-            <Link to="/post-processing" className="text-[#1e5bb8] font-medium text-base flex items-center gap-2 hover:underline">
-              Explore Module <span className="text-xl">&#8594;</span>
-            </Link>
-          </div>
+          ))}
         </div>
 
         {/* Key Capabilities */}
@@ -134,7 +160,8 @@ export default function LandingPage() {
                 </div>
                 <div className="text-base font-semibold text-[#142d4c] mb-1 text-center">Rapid Flow Analysis</div>
                 <div className="text-sm text-[#3a5a7c] text-center leading-relaxed">
-                  Rapid Flow analysis enabling quick optimisation and conceptual studies using Potential Flows               </div>
+                  Rapid Flow analysis enabling quick optimisation and conceptual studies using Potential Flows
+                </div>
               </div>
               {/* Capability Card 2 */}
               <div className="flex flex-col items-center w-1/4 px-2">
@@ -184,7 +211,7 @@ export default function LandingPage() {
             </div>
           </div>
           <nav className="flex gap-12 text-base font-medium text-white">
-            <a href="#" className="hover:text-[#0ec3e0] transition-colors">Documentation</a>
+            <a href="https://github.com/ramtarun02/VFP-2025" className="hover:text-[#0ec3e0] transition-colors">Documentation</a>
             <a href="#" className="hover:text-[#0ec3e0] transition-colors">Publications</a>
             <a href="#" className="hover:text-[#0ec3e0] transition-colors">Support</a>
           </nav>
@@ -208,3 +235,4 @@ export default function LandingPage() {
     </div>
   );
 }
+
