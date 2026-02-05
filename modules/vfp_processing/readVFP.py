@@ -90,7 +90,7 @@ def readFLOW(filename):
     """
     Read FLOW (.dat) file and return structured data in JSON format
     """
-    with open(filename, 'r') as f:
+    with open(filename, 'r', newline='') as f:
         lines = f.readlines()
 
     result = {

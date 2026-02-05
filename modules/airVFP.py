@@ -6,8 +6,8 @@ import time
 import subprocess
 from vfp_processing.downwashLLT import compute_downwash_LLT
 from vfp_processing.readVFP import readFLOW
-from utils.VFP_Data_Extraction_Utils import extract_values
-from utils.VFP_File_Generation_Utils import process_filea
+# from utils.VFP_Data_Extraction_Utils import extract_values
+# from utils.VFP_File_Generation_Utils import process_files
 import numpy as np
 
 def convert_ndarray_to_list(obj):
@@ -247,9 +247,9 @@ def multi_stage_tail_downwash(
     logging.debug(f"[STEP 4] Downwash results: ALPHAE={ALPHAE}, MACHT={MACHT}")
 
     # STEP 5: Calculate ALPHAT and modify tail flow file (in-place, all levels, 4 decimals)
-    ALPHAT = round(ALPHAW - ALPHAE, 4)
+    ALPHAT = round(ALPHAW - abs(ALPHAE), 4)
     MACHT = round(MACHT, 4)
-    logging.debug(f"[STEP 5] Calculated ALPHAT = ALPHAW - ALPHAE = {ALPHAW} - {ALPHAE} = {ALPHAT}")
+    logging.debug(f"[STEP 5] Calculated ALPHAT = ALPHAW - ALPHAE = {ALPHAW} - {abs(ALPHAE)} = {ALPHAT}")
 
     # Work on the copy of the tail flow file in the case folder
     tail_flow_case = os.path.join(case_folder, os.path.basename(tail_flow))
@@ -276,42 +276,42 @@ def multi_stage_tail_downwash(
         "ALPHAT": ALPHAT,
     })
 
-# if __name__ == "__main__":
-#     logging.basicConfig(level=logging.DEBUG)
-
-#     # Provide the full paths to your files here
-#     case_folder = r"C:\Users\Tarun.Ramprakash\Downloads\VFP-Python\VFP_Full_Sim"
-#     wing_geo    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M085_Re19p8M\CRM_Wing_19p8M_m085\CRM1wbs.GEO"
-#     wing_map    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M085_Re19p8M\CRM_Wing_19p8M_m085\CRM1wb.map"
-#     wing_flow   = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M085_Re19p8M\CRM_Wing_19p8M_m085\M085Re19p8ma+0p00.DAT"
-#     tail_geo    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\CRM_tail_M085_R19p8M\CRMHT4.GEO"
-#     tail_map    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\CRM_tail_M085_R19p8M\CRMHT.map"
-#     tail_flow   = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\CRM_tail_M085_R19p8M\M085Re19p0ma+0p00.DAT"
-#     tail_spec   = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\crmtail.tail"
-
-#     results = multi_stage_tail_downwash(
-#         case_folder,
-#         wing_geo, wing_map, wing_flow,
-#         tail_geo, tail_map, tail_flow, tail_spec
-#     )
-
-#     print("Multi-stage tail downwash results:")
-#     for k, v in results.items():
-#         print(f"{k}: {v}")
-
-
-
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+
+    # Provide the full paths to your files here
+    case_folder = r"C:\Users\Tarun.Ramprakash\Downloads\VFP-Python\VFP_Full_Sim"
+    wing_geo    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M085_Re19p8M\CRM_Wing_19p8M_m085\CRM1wbs.GEO"
+    wing_map    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M085_Re19p8M\CRM_Wing_19p8M_m085\CRM1wb.map"
+    wing_flow   = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Wing_M085_Re19p8M\CRM_Wing_19p8M_m085\M085Re19p8ma+0p00.DAT"
+    tail_geo    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\CRM_tail_M085_R19p8M\CRMHT4.GEO"
+    tail_map    = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\CRM_tail_M085_R19p8M\CRMHT.map"
+    tail_flow   = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\CRM_tail_M085_R19p8M\M085Re19p0ma+0p00.DAT"
+    tail_spec   = r"C:\Users\Tarun.Ramprakash\Cranfield University\Davide Di Pasquale - VFP_Tarun\CRM_Tail_VFP_Study\crmtail.tail"
+
+    results = multi_stage_tail_downwash(
+        case_folder,
+        wing_geo, wing_map, wing_flow,
+        tail_geo, tail_map, tail_flow, tail_spec
+    )
+
+    print("Multi-stage tail downwash results:")
+    for k, v in results.items():
+        print(f"{k}: {v}")
 
 
-    import sys
-    if len(sys.argv) != 10:
-        print("Usage: airVFP.py <case_folder> <wing_geo> <wing_map> <wing_flow> <tail_geo> <tail_map> <tail_flow> <tail_spec>")
-        sys.exit(1)
-    case_folder, wing_geo, wing_map, wing_flow, tail_geo, tail_map, tail_flow, tail_spec, emit_call = sys.argv[1:]
-    print("[Multi-Stage] Starting multi_stage_tail_downwash...")
-    results = multi_stage_tail_downwash(case_folder, wing_geo, wing_map, wing_flow, tail_geo, tail_map, tail_flow, tail_spec, emit_message=emit_call)
-    results = convert_ndarray_to_list(results)
-    print("[Multi-Stage] Computation finished.")
-    print("[Multi-Stage] Results:")
-    print(results)
+
+# if __name__ == "__main__":
+
+
+#     import sys
+#     if len(sys.argv) != 10:
+#         print("Usage: airVFP.py <case_folder> <wing_geo> <wing_map> <wing_flow> <tail_geo> <tail_map> <tail_flow> <tail_spec>")
+#         sys.exit(1)
+#     case_folder, wing_geo, wing_map, wing_flow, tail_geo, tail_map, tail_flow, tail_spec, emit_call = sys.argv[1:]
+#     print("[Multi-Stage] Starting multi_stage_tail_downwash...")
+#     results = multi_stage_tail_downwash(case_folder, wing_geo, wing_map, wing_flow, tail_geo, tail_map, tail_flow, tail_spec, emit_message=emit_call)
+#     results = convert_ndarray_to_list(results)
+#     print("[Multi-Stage] Computation finished.")
+#     print("[Multi-Stage] Results:")
+#     print(results)

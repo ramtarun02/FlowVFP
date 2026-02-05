@@ -40,7 +40,7 @@ def parse_forces_file_for_level_1(file_path):
         line_stripped = line.strip()
         
         # Check for level markers (LEV= followed by a number)
-        level_match = re.search(r'LEV=\s*(\d+)', line_stripped)
+        level_match = re.search(r'LEV= \s*(\d+)', line_stripped)
         if level_match:
             # Save previous level data if it exists
             if current_level is not None and current_level_lines:

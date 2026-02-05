@@ -2,24 +2,45 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from vfp_processing.readVFP import readCP as cp
-from vfp_processing.readVFP import readGEO as geo
+
+# Support running both as part of the app package (modules.vfp_processing)
+# and as a standalone module (vfp_processing). Try the package-aware import first.
+try:  # preferred when imported via "modules.vfp_processing.downwashLLT"
+    from modules.vfp_processing.readVFP import readCP as cp
+    from modules.vfp_processing.readVFP import readGEO as geo
+except ImportError:  # fallback when working directory already set inside modules
+    from vfp_processing.readVFP import readCP as cp
+    from vfp_processing.readVFP import readGEO as geo
 
 def parse_tail_input(tailflowInput):
     """
     Parse the fixed-format .tail input file with user-friendly comments.
-    Returns a dictionary of parameters.
+    - Strips comment lines starting with '#'.
+    - Expects alternating key and value lines.
+    - Keys are normalized to upper-case.
+    - Raises a clear error when key/value counts do not match.
     """
     params = {}
     with open(tailflowInput, 'r') as f:
-        # Remove comments and blank lines
-        lines = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+        raw_lines = f.readlines()
+
+    # Drop comments/blank lines; keep order
+    lines = []
+    for line in raw_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        # Remove inline comments if present
+        if '#' in stripped:
+            stripped = stripped.split('#', 1)[0].strip()
+        if stripped:
+            lines.append(stripped)
+
     idx = 0
-    # First non-comment line is TITLE
     if idx < len(lines):
         params['TITLE'] = lines[idx]
         idx += 1
-    # Parse parameter blocks: acronym line, then value line
+
     while idx < len(lines):
         key_line = lines[idx]
         idx += 1
@@ -27,13 +48,23 @@ def parse_tail_input(tailflowInput):
             break
         val_line = lines[idx]
         idx += 1
-        keys = key_line.split()
-        vals = val_line.split()
+
+        keys = [k.strip().upper() for k in key_line.split() if k.strip()]
+        vals = [v.strip() for v in val_line.split() if v.strip()]
+
+        if len(keys) != len(vals):
+            raise ValueError(
+                f"Tail file parse error: expected {len(keys)} values for keys {keys} but found {len(vals)}"
+            )
+
         for k, v in zip(keys, vals):
             try:
                 params[k] = float(v)
             except ValueError:
                 params[k] = v
+
+                
+
     return params
 
 def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
@@ -49,6 +80,7 @@ def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
     """
     # --- Read input parameters from .tail file ---
     params = parse_tail_input(tailflowInput)
+    print(f"[downwashLLT] Parsed tail input '{tailflowInput}': {params}")
     # Required parameters (with defaults if not present)
     Cl_VFP = params.get('CLVFP', 0.43796)
     wing_root_chord = params.get('CWING', 12.50)
@@ -111,7 +143,7 @@ def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
         return np.interp(y, y_sections, c_sections)
 
     def estimate_area(y, c):
-        return np.trapezoid(c, y)
+        return np.trapz(c, y)
 
     S = estimate_area(y_sections, c_sections)
     AR = b**2 / S
@@ -121,7 +153,7 @@ def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
 
     Gamma = 0.5 * V_inf * c_sections * cl_sections
     L_prime = rho_inf * V_inf * Gamma
-    L_total = np.trapezoid(L_prime, y_sections)
+    L_total = np.trapz(L_prime, y_sections)
     CL = L_total / (0.5 * rho_inf * V_inf**2 * S)
 
     # Panel boundaries (spanwise)
@@ -180,7 +212,7 @@ def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
         local_velocity_vectors[i] = V_local
         local_velocity_magnitudes[i] = np.linalg.norm(V_local)
     epsilon_deg_array = np.degrees(epsilon_t_array)
-    effective_epsilon_rad = np.trapezoid(epsilon_t_array, y_tail) / (y_tail[-1] - y_tail[0])
+    effective_epsilon_rad = np.trapz(epsilon_t_array, y_tail) / (y_tail[-1] - y_tail[0])
     effective_epsilon_deg = np.degrees(effective_epsilon_rad)
     epsilon  = 2 * Cl_VFP / (np.pi * AR * 0.75)
     epsilon_deg = np.degrees(epsilon)
