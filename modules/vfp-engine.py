@@ -4,8 +4,22 @@ import shutil
 import subprocess
 import base64
 import re
+import sys
+import logging
+from pathlib import Path
+
 import numpy as np
 
+LOG_LEVEL = os.getenv("VFP_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
+logger = logging.getLogger("vfp-engine")
+
+# Local module imports
 from vfp_processing.downwashLLT import compute_downwash_LLT
 from vfp_processing.readVFP import readFLOW
 from utils.VFP_File_Generation_Utils import extract_levels_and_fuse
@@ -14,16 +28,16 @@ from utils import VFP_Data_Extraction_Utils as vfp_extract
 # --- CONFIGURATION ---
 # vfpFilePath = r"C:\Users\Tarun.Ramprakash\Downloads\CRM-Wing-3.vfp"
 
-import sys
-
 if len(sys.argv) > 1:
     vfpFilePath = sys.argv[1]
+    logger.debug("Using VFP file path from argv: %s", vfpFilePath)
 else:
     raise RuntimeError("Usage: python vfp-engine.py <vfpFilePath>")
 
 # --- UTILITY FUNCTIONS ---
 
 def write_vfp_input_files(vfp_data, config_key, base_dir):
+    logger.debug("Writing VFP input files for %s into %s", config_key, base_dir)
     input_files = vfp_data.get("inputFiles", {})
     config = input_files.get(config_key, {})
     file_names = config.get("fileNames", {})
@@ -35,11 +49,14 @@ def write_vfp_input_files(vfp_data, config_key, base_dir):
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8", newline='') as f:
                 f.write(data)
-            print(f"Wrote {file_path}")
+            logger.debug("Wrote input file: %s", file_path)
+        else:
+            logger.debug("Skipping missing file for key %s in %s", key, config_key)
 
 def copy_simulation_files(src_dir, dest_dir):
+    logger.debug("Copying simulation helper files from %s to %s", src_dir, dest_dir)
     if not os.path.exists(src_dir):
-        print(f"Source directory {src_dir} does not exist.")
+        logger.warning("Source directory %s does not exist; skipping copy.", src_dir)
         return
     os.makedirs(dest_dir, exist_ok=True)
     for file_name in os.listdir(src_dir):
@@ -47,7 +64,7 @@ def copy_simulation_files(src_dir, dest_dir):
         dest_file = os.path.join(dest_dir, file_name)
         if os.path.isfile(src_file):
             shutil.copy2(src_file, dest_file)
-            print(f"Copied {src_file} to {dest_file}")
+            logger.debug("Copied helper file %s -> %s", src_file, dest_file)
 
 def add_vfp_results_to_data(vfp_data, sim_dir, config_key):
     """
@@ -58,9 +75,9 @@ def add_vfp_results_to_data(vfp_data, sim_dir, config_key):
     import base64
 
     result_exts = [
-        ".mapout", ".cp", ".flow", ".conv", ".forces", ".sum", ".vis", ".DAT"
+        ".mapout", ".cp", ".flow", ".conv", ".forces", ".sum", ".vis", ".DAT",
+        ".fort11", ".fort15", ".fort21", ".fort50", ".fort51", ".fort52", ".fort55"
     ]
-    dump_exts = {".fort11", ".fort15", ".fort21", ".fort50", ".fort51", ".fort52", ".fort55"}
     wavedrag_suffixes = [f"wavedrg{n}.DAT" for n in range(73, 77)]
 
     file_names = vfp_data["inputFiles"][config_key]["fileNames"]
@@ -104,24 +121,6 @@ def add_vfp_results_to_data(vfp_data, sim_dir, config_key):
                 mapout_written = True
             continue
 
-        # Dump files are stored under a dedicated dumpFiles node
-        if ext in dump_exts:
-            fname = f"{geo_file}{flow_file_no_ext}{ext}"
-            fpath = os.path.join(sim_dir, fname)
-            if os.path.isfile(fpath):
-                dump_files = results.setdefault("dumpFiles", {})
-                if fname not in dump_files:
-                    try:
-                        with open(fpath, "r", encoding="utf-8") as f:
-                            data = f.read()
-                        dump_files[fname] = {"data": data, "encoding": "utf-8"}
-                    except Exception:
-                        with open(fpath, "rb") as f:
-                            bdata = f.read()
-                        b64data = base64.b64encode(bdata).decode("ascii")
-                        dump_files[fname] = {"data": b64data, "encoding": "base64"}
-            continue
-
         fname = f"{geo_file}{flow_file_no_ext}{ext}"
         fpath = os.path.join(sim_dir, fname)
         if os.path.isfile(fpath):
@@ -146,14 +145,15 @@ def add_vfp_results_to_data(vfp_data, sim_dir, config_key):
                     with open(fpath, "r", encoding="utf-8") as f:
                         data = f.read()
                     results[fname] = {"data": data, "encoding": "utf-8"}
-                    print(f"Added wavedrag file to results: {fname}")
+                    logger.debug("Added wavedrag file to results: %s", fname)
                 except Exception:
                     with open(fpath, "rb") as f:
                         bdata = f.read()
                     b64data = base64.b64encode(bdata).decode("ascii")
                     results[fname] = {"data": b64data, "encoding": "base64"}
-
-    print(f"Added {len(results)} result files to vfp_data['results']['{config_key}']['{flow_file}']")
+    logger.info(
+        "Attached %d result files for config %s flow %s", len(results), config_key, flow_file
+    )
     return vfp_data
 
 
@@ -184,7 +184,7 @@ def extract_polars(sim_dir):
 
     common_aoas = sorted(set(forces_by_aoa.keys()) & set(wavedrag_by_aoa.keys()))
     if not common_aoas:
-        print("No matching .forces and wavedrag files found for polars extraction.")
+        logger.info("No matching .forces and wavedrag files found for polars extraction in %s", sim_dir)
         return {}
 
     records = []
@@ -223,12 +223,14 @@ def extract_polars(sim_dir):
             polars[key].append(rec.get(key))
         polars["Filename"].append(rec.get("Filename"))
 
-    print(f"Extracted polars for {len(records)} points from {sim_dir}")
+    logger.info("Extracted polars for %d points from %s", len(records), sim_dir)
     return polars
 
 
 def run_vfp(sim_dir, vfp_data, config_key):
+    logger.info("Starting VFP run for %s in %s", config_key, sim_dir)
     bat_path = os.path.join(sim_dir, "cmdvfp.bat")
+    simName = vfp_data.get("simName", "unknownSim")
     files = vfp_data["inputFiles"][config_key]["fileNames"]
     geoName = os.path.splitext(files["GeoFile"])[0]
     mapName = os.path.splitext(files["MapFile"])[0]
@@ -238,6 +240,7 @@ def run_vfp(sim_dir, vfp_data, config_key):
     cont_flag = "y" if continuation else "n"
     excr_flag = "y" if excrescence else "n"
     args = [bat_path, mapName, geoName, datName, cont_flag, excr_flag, ""]
+    logger.debug("Subprocess args: %s", args)
     process = subprocess.Popen(
         args,
         cwd=sim_dir,
@@ -247,14 +250,17 @@ def run_vfp(sim_dir, vfp_data, config_key):
         text=True
     )
     for line in process.stdout:
-        print(line, end="")
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        logger.debug("VFP stdout: %s", line.rstrip())
     process.wait()
-    print(f"VFP run completed with exit code {process.returncode}")
+    logger.info("VFP run completed for %s with exit code %s", config_key, process.returncode)
     add_vfp_results_to_data(vfp_data, sim_dir, config_key)
-    print(f"Simulation results added to VFP Data for {config_key}.")
+    logger.info("Simulation results added to VFP Data for %s", config_key)
+    save_vfp_results(vfp_data, simName=simName, aoa=None, project_root=project_root)
     return vfp_data
 
-def vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileName):
+def vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileKey):
     required_exts = [".fort11", ".fort15", ".fort21", ".fort50", ".fort51", ".fort52", ".fort55"]
     results_root = vfp_data.get("results")
     if results_root is None or config_key not in results_root:
@@ -265,21 +271,23 @@ def vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileName):
     if not results_dict:
         raise ValueError(f"Results for {config_key} are empty; flow keys available: {list(results_root.keys())}")
 
-    if dumpFileName not in results_dict:
+    if dumpFileKey not in results_dict:
         raise FileNotFoundError(
-            f"Flow key '{dumpFileName}' not found in results for {config_key}. "
+            f"Flow key '{dumpFileKey}' not found in results for {config_key}. "
             f"Available flow keys: {list(results_dict.keys())}"
         )
 
-    print(f"Using flow key '{dumpFileName}' for dump write.")
-    results = results_dict[dumpFileName]
+    logger.info("Writing dump files using flow key %s", dumpFileKey)
+    results = results_dict[dumpFileKey]
+    geoName = os.path.splitext(vfp_data["inputFiles"][config_key]["fileNames"]["GeoFile"])[0]
+    dumpFileName = geoName + dumpFileKey 
 
     for ext in required_exts:
         # Find the first file in this flow entry that ends with the required extension
         matching_names = [name for name in results if name.lower().endswith(ext)]
         if not matching_names:
             raise FileNotFoundError(
-                f"Required dump file with extension {ext} not found under flow key '{dumpFileName}'."
+                f"Required dump file {dumpFileName} with extension {ext} not found under flow key '{dumpFileKey}'."
             )
         fname = matching_names[0]
         file_info = results[fname]
@@ -289,14 +297,55 @@ def vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileName):
         if encoding == "base64":
             with open(file_path, "wb") as f:
                 f.write(base64.b64decode(data))
-            print(f"Wrote binary dump file: {file_path}")
+            logger.debug("Wrote binary dump file: %s", file_path)
         else:
             with open(file_path, "w", encoding="utf-8", newline='') as f:
                 f.write(data)
-            print(f"Wrote dump file: {file_path}")
+            logger.debug("Wrote dump file: %s", file_path)
+
+
+def write_dump_files_from_split_json(project_root, upload_id, split_file_name, sim_dir):
+    """Write required dump files from a split-json artifact and return the dump base stem."""
+    split_path = Path(project_root) / "data" / "uploads" / upload_id / "split-json" / split_file_name
+    if not split_path.exists():
+        raise FileNotFoundError(f"Split JSON file not found: {split_path}")
+
+    with open(split_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    required_exts = {".fort11", ".fort15", ".fort21", ".fort50", ".fort51", ".fort52", ".fort55"}
+    dump_base = None
+
+    for fname, meta in payload.items():
+        dest_path = Path(sim_dir) / fname
+        encoding = meta.get("encoding", "utf-8")
+        data = meta.get("data", "")
+        if encoding == "base64":
+            dest_path.write_bytes(base64.b64decode(data))
+        else:
+            dest_path.write_text(data, encoding="utf-8")
+
+        if dump_base is None and dest_path.suffix.lower() in required_exts:
+            dump_base = dest_path.stem
+
+    if dump_base is None:
+        raise ValueError("No dump files (.fort11/15/21/50/51/52/55) found in split JSON")
+
+    logger.info("Restored dump files from split JSON %s into %s", split_file_name, sim_dir)
+    return dump_base
 
 def run_vfp_continuation(sim_dir, vfp_data, config_key, dumpFileName):
-    vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileName)
+    logger.info("Starting VFP continuation for %s using dump %s", config_key, dumpFileName)
+    form_data = vfp_data.get("formData", {}) if isinstance(vfp_data, dict) else {}
+    upload_id = form_data.get("uploadId")
+    simName = vfp_data.get("simName", "unknownSim")
+    split_file = form_data.get("continuationSplitFile")
+
+    if upload_id and split_file:
+        dump_base = write_dump_files_from_split_json(project_root, upload_id, split_file, sim_dir)
+    else:
+        vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileName)
+        dump_base = None
     bat_path = os.path.join(sim_dir, "cmdvfp.bat")
     files = vfp_data["inputFiles"][config_key]["fileNames"]
     geoName = os.path.splitext(files["GeoFile"])[0]
@@ -306,9 +355,10 @@ def run_vfp_continuation(sim_dir, vfp_data, config_key, dumpFileName):
     excrescence = vfp_data["formData"].get("excrescence", False)
     cont_flag = "y" if continuation else "n"
     excr_flag = "y" if excrescence else "n"
-    dump_base = geoName + os.path.splitext(dumpFileName)[0]
+    if dump_base is None:
+        dump_base = geoName + os.path.splitext(dumpFileName)[0]
     args = [bat_path, mapName, geoName, datName, excr_flag, cont_flag, dump_base, ""]
-    print(f"Running VFP continuation with args: {args}")
+    logger.debug("Continuation subprocess args: %s", args)
     process = subprocess.Popen(
         args,
         cwd=sim_dir,
@@ -318,11 +368,16 @@ def run_vfp_continuation(sim_dir, vfp_data, config_key, dumpFileName):
         text=True
     )
     for line in process.stdout:
-        print(line, end="")
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        logger.debug("VFP continuation stdout: %s", line.rstrip())
     process.wait()
-    print(f"VFP continuation run completed with exit code {process.returncode}")
+    logger.info(
+        "VFP continuation completed for %s with exit code %s", config_key, process.returncode
+    )
     add_vfp_results_to_data(vfp_data, sim_dir, config_key)
-    print(f"Simulation results added to VFP Data for {config_key}.")
+    logger.info("Continuation results added to VFP Data for %s", config_key)
+    save_vfp_results(vfp_data, simName=simName, aoa=None, project_root=project_root)
     return vfp_data
 
 def extract_alpha_mach_from_flow(flow_file, level_idx=1):
@@ -335,6 +390,7 @@ def extract_alpha_mach_from_flow(flow_file, level_idx=1):
     return alpha, mach
 
 def modify_tail_flow_file_preserve_format(tail_flow, new_aoa, new_mach):
+    logger.debug("Modifying tail flow file %s with AoA=%s Mach=%s", tail_flow, new_aoa, new_mach)
     with open(tail_flow, 'r') as f:
         lines = f.readlines()
     data_json = extract_levels_and_fuse(lines)
@@ -373,7 +429,7 @@ def modify_tail_flow_file_preserve_format(tail_flow, new_aoa, new_mach):
             idx += 1
     with open(tail_flow, 'w') as f:
         f.writelines(new_lines)
-    print(f"Modified tail flow file written to: {tail_flow} (format preserved)")
+    logger.info("Tail flow file updated with preserved format: %s", tail_flow)
 
 def _json_safe_default(obj):
     if isinstance(obj, np.ndarray):
@@ -392,14 +448,14 @@ def save_vfp_results(vfp_data, simName, aoa, project_root):
     outputVfpPath = os.path.join(project_root, "data", "Simulations", result_filename)
     with open(outputVfpPath, "w", encoding="utf-8") as f:
         json.dump(vfp_data, f, indent=4, default=_json_safe_default)
-    print(f"Saved updated VFP data with results to {outputVfpPath}")
+    logger.info("Saved VFP results to %s", outputVfpPath)
 
 def cleanup_sim_dir(sim_dir):
     try:
         shutil.rmtree(sim_dir)
-        print(f"Deleted simulation working directory: {sim_dir}")
+        logger.info("Deleted simulation working directory: %s", sim_dir)
     except Exception as e:
-        print(f"Failed to delete simulation working directory: {e}")
+        logger.warning("Failed to delete simulation working directory %s: %s", sim_dir, e)
 
 
 def generate_flow_file(base_flow_path, new_flow_path, new_aoa=None, new_mach=None):
@@ -412,6 +468,13 @@ def generate_flow_file(base_flow_path, new_flow_path, new_aoa=None, new_mach=Non
     5. End with '    0'
     """
     import re
+    logger.debug(
+        "Generating flow file from %s to %s with AoA=%s Mach=%s",
+        base_flow_path,
+        new_flow_path,
+        new_aoa,
+        new_mach,
+    )
     result = readFLOW(base_flow_path)
     levels_dict = result.get('levels', {})
     level_numbers = [int(m.group(1)) for key in levels_dict for m in re.finditer(r'^level(\d+)$', key)]
@@ -467,7 +530,7 @@ def generate_flow_file(base_flow_path, new_flow_path, new_aoa=None, new_mach=Non
             f.write(line+"\n")
         # 5. End with '    0'
         f.write("    0\r\n")
-    print(f"Generated flow file (level 1 only, format preserved): {new_flow_path}")
+    logger.info("Generated flow file (level 1 only) at %s", new_flow_path)
 
 
 def get_flow_filename(mach, aoa):
@@ -482,7 +545,7 @@ with open(vfpFilePath, "r", encoding="utf-8") as f:
     vfpData = json.load(f)
 
 simName = vfpData["formData"]["simName"]
-print(f"Loaded VFP Case: {simName}")
+logger.info("Loaded VFP case: %s", simName)
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 simBaseDir = os.path.join(project_root, "data", "Simulations", simName)
@@ -494,13 +557,13 @@ os.makedirs(tailSimDir, exist_ok=True)
 vfp_dir = os.path.join(project_root, "modules", "utils")
 copy_simulation_files(vfp_dir, wingSimDir)
 copy_simulation_files(vfp_dir, tailSimDir)
-print("Simulation files copied.")
+logger.info("Simulation helper files copied to working directories")
 
 if "wingConfig" in vfpData.get("inputFiles", {}):
     write_vfp_input_files(vfpData, "wingConfig", base_dir=wingSimDir)
 if "tailConfig" in vfpData.get("inputFiles", {}):
     write_vfp_input_files(vfpData, "tailConfig", base_dir=tailSimDir)
-print("All input files written.")
+logger.info("All input files written to wing and tail working directories")
 
 aoa = vfpData["formData"].get("aoa", None)
 continuation = vfpData["formData"].get("continuationRun", False)
@@ -515,18 +578,19 @@ if "bodyFiles" in vfpData["inputFiles"]:
             tail_spec_path = os.path.join(tailSimDir, fname)
             with open(tail_spec_path, "w", encoding="utf-8") as f:
                 f.write(fdata)
-            print(f"Wrote tail spec file: {tail_spec_path}")
+            logger.debug("Wrote tail spec file: %s", tail_spec_path)
             tail_spec = tail_spec_path  # Use the first one found
 
 # --- MODE SELECTION AND EXECUTION ---
 if auto_runner:
-    print("AutoRunner mode enabled.")
+    logger.info("AutoRunner mode enabled")
     autoMode = vfpData["formData"].get("autoMode", "aoa")  # "aoa" or "mach"
     autoStepSize = float(vfpData["formData"].get("autoStepSize", 1.0))
     autoEndValue = float(vfpData["formData"].get("autoEndAoA", 0.0)) if autoMode == "aoa" else float(vfpData["formData"].get("autoEndMach", 0.0))
     base_aoa = float(vfpData["formData"].get("aoa", 0.0))
     base_mach = float(vfpData["formData"].get("mach", 0.0))
     # Extract Reynolds number and other parts from the original flow file name
+    geoFileName = vfpData["inputFiles"]["wingConfig"]["fileNames"]["GeoFile"]
     orig_flow_file_name = vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"]
     re_match = re.search(r"Re(\d+p\d+)", orig_flow_file_name)
     reynolds = re_match.group(1) if re_match else "0p00"
@@ -536,7 +600,7 @@ if auto_runner:
     n = int(((autoEndValue - base_aoa) if autoMode == "aoa" else (autoEndValue - base_mach)) / autoStepSize) + 1
     values = [base_aoa + i * autoStepSize if autoMode == "aoa" else base_mach + i * autoStepSize for i in range(n)]
     # First simulation (non-continuation) - use the user-provided flow file as-is
-    print(f"AutoRunner: Running first simulation at {autoMode}={values[0]}")
+    logger.info("AutoRunner first simulation at %s=%s", autoMode, values[0])
     flow_file_name = orig_flow_file_name
     vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"] = flow_file_name
     vfpData = run_vfp(wingSimDir, vfpData, "wingConfig")
@@ -544,7 +608,9 @@ if auto_runner:
     base_flow_path = os.path.join(wingSimDir, flow_file_name)
     # Subsequent simulations (continuation)
     for i in range(1, n):
-        print(f"AutoRunner: Running continuation simulation {i+1}/{n} at {autoMode}={values[i]}")
+        logger.info(
+            "AutoRunner continuation %d/%d at %s=%s", i + 1, n, autoMode, values[i]
+        )
         # Generate new flow file name
         if autoMode == "aoa":
             mach_val = base_mach
@@ -561,12 +627,12 @@ if auto_runner:
         vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"] = flow_file_name
         # For continuation runs, the dumpFileName is the prior flow key in results (DatFile name)
         if i == 1:
-            dumpFileName = orig_flow_file_name
+            dumpFileName = os.path.splitext(orig_flow_file_name)[0]
         else:
             prev_aoa_str = f"{abs(values[i-1]):05.2f}".replace('.', 'p') if autoMode == "aoa" else f"{abs(base_aoa):05.2f}".replace('.', 'p')
             pre_mach_part = f"M{base_mach:.2f}".replace('.', '') if autoMode == "aoa" else f"M{values[i-1]:.2f}".replace('.', '')
             prev_flow_file_name = f"{pre_mach_part}Re{reynolds}ma{'+' if values[i-1] >= 0 else '-'}{prev_aoa_str}.DAT"
-            dumpFileName = prev_flow_file_name
+            dumpFileName = os.path.splitext(prev_flow_file_name)[0]
         vfpData["formData"]["continuationRun"] = True
         vfpData = run_vfp_continuation(wingSimDir, vfpData, "wingConfig", dumpFileName)
         vfpData = add_vfp_results_to_data(vfpData, wingSimDir, "wingConfig")
@@ -575,17 +641,16 @@ if auto_runner:
     if polars_data:
         vfpData.setdefault("results", {})["Polars"] = polars_data
     else:
-        print("No polars were extracted; results->Polars not updated.")
+        logger.warning("No polars extracted; results->Polars not updated")
 
     save_vfp_results(vfpData, simName, values[-1], project_root)
-    print("AutoRunner simulations complete.")
+    logger.info("AutoRunner simulations complete")
 
 elif continuation:
-    print("Continuation mode enabled.")
+    logger.info("Continuation mode enabled")
     if "wingConfig" in vfpData.get("inputFiles", {}):
         dumpFileName = vfpData["formData"].get("wingDumpName", vfpData["formData"].get("dumpName"))
-        print("Simulating wing (continuation mode)...")
-        print(f"Using dump file: {dumpFileName}")
+        logger.info("Simulating wing continuation with dump %s", dumpFileName)
         vfpData = run_vfp_continuation(wingSimDir, vfpData, "wingConfig", dumpFileName)
     if (
         "tailConfig" in vfpData.get("inputFiles", {}) and
@@ -596,18 +661,18 @@ elif continuation:
     save_vfp_results(vfpData, simName, aoa, project_root)
 
 else:
-    print("Standard mode enabled.")
+    logger.info("Standard mode enabled")
     if "wingConfig" not in vfpData.get("inputFiles", {}):
         raise RuntimeError("No wingConfig found in VFP data.")
 
-    print("Simulating wing (standard mode)...")
+    logger.info("Simulating wing (standard mode)")
     vfpData = run_vfp(wingSimDir, vfpData, "wingConfig")
 
     if (
         "tailConfig" in vfpData.get("inputFiles", {}) and
         vfpData["inputFiles"]["tailConfig"]["fileNames"].get("DatFile")
     ):
-        print("Computing downwash and modifying tail flow...")
+        logger.info("Computing downwash and modifying tail flow")
 
         wing_flow = os.path.join(wingSimDir, vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"])
         tail_flow = os.path.join(tailSimDir, vfpData["inputFiles"]["tailConfig"]["fileNames"]["DatFile"])
@@ -625,7 +690,13 @@ else:
         MACHT = downwash_results.get('avg_local_mach')
         ALPHAT = round(ALPHAW - abs(ALPHAE), 4)
         MACHT = round(MACHT, 4)
-        print(f"Downwash: ALPHAW={ALPHAW}, ALPHAE={ALPHAE}, ALPHAT={ALPHAT}, MACHT={MACHT}")
+        logger.info(
+            "Downwash results ALPHAW=%s ALPHAE=%s ALPHAT=%s MACHT=%s",
+            ALPHAW,
+            ALPHAE,
+            ALPHAT,
+            MACHT,
+        )
 
         if "results" not in vfpData:
             vfpData["results"] = {}
@@ -639,7 +710,7 @@ else:
             tail_flow_data = f.read()
         vfpData["inputFiles"]["tailConfig"]["fileData"][os.path.basename(tail_flow)] = tail_flow_data
 
-        print("Simulating tail (standard mode)...")
+        logger.info("Simulating tail (standard mode)")
         vfpData = run_vfp(tailSimDir, vfpData, "tailConfig")
 
     save_vfp_results(vfpData, simName, aoa, project_root)

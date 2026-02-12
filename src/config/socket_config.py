@@ -23,14 +23,27 @@ class SocketConfig:
     
     def init_app(self, app):
         """Initialize SocketIO with the Flask app"""
+        # Reduce noisy Engine.IO logging that can dump full payloads
+        engineio_log_level = logging.getLevelName(
+            (app.config.get('ENGINEIO_LOG_LEVEL') or 'WARNING').upper()
+        )
+        engineio_logger = logging.getLogger('engineio')
+        engineio_logger.setLevel(engineio_log_level)
+
+        socketio_log_level = logging.getLevelName(
+            (app.config.get('SOCKETIO_LOG_LEVEL') or 'WARNING').upper()
+        )
+        socketio_logger = logging.getLogger('socketio')
+        socketio_logger.setLevel(socketio_log_level)
+
         self.socketio = SocketIO(
             app,
             manage_session=True,
-            cors_allowed_origins={'https://ramtarun02.github.io', 'http://localhost:3000'},
+            cors_allowed_origins="*",
             ping_timeout=300,  # 5 minutes
             ping_interval=25,  # 25 seconds
-            logger=True,
-            engineio_logger=True
+            logger=socketio_logger,
+            engineio_logger=engineio_logger
         )
         
         # Register event handlers

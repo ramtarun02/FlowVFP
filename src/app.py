@@ -8,6 +8,7 @@ Optimized for Azure App Service deployment
 
 import os
 import sys
+import logging
 from pathlib import Path
 import tempfile
 import shutil
@@ -26,6 +27,14 @@ import copy
 from datetime import datetime
 from scipy.interpolate import griddata
 import json
+
+
+LOG_LEVEL = os.getenv("APP_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("vfp-app")
 
 
 # Setup Python path for module imports
@@ -57,7 +66,7 @@ def configure_for_azure():
 azure_config = configure_for_azure()
 
 if azure_config['is_azure']:
-    print("Detected Azure App Service environment")
+    logger.info("Detected Azure App Service environment")
     project_root = azure_config['project_root']
     DATA_ROOT = azure_config['data_root']
     TEMP_ROOT = azure_config['temp_root']
@@ -68,18 +77,18 @@ else:
         else:
             project_root = Path(__file__).parent.parent
         DATA_ROOT = project_root / 'data'
-        print("Detected Windows environment")
+        logger.info("Detected Windows environment")
     elif os.path.exists('/app'):
         project_root = Path('/app')
         DATA_ROOT = project_root / 'data'
-        print("Detected Docker environment")
+        logger.info("Detected Docker environment")
     elif os.environ.get('RENDER'):
         DATA_ROOT = Path('/opt/render/project/data')
         project_root = current_dir.parent
-        print("Detected Render environment")
+        logger.info("Detected Render environment")
     else:
         DATA_ROOT = project_root / 'data'
-        print("Detected development environment")
+        logger.info("Detected development environment")
 
 UPLOAD_FOLDER = project_root / 'data' / 'uploads'
 SIMULATIONS_FOLDER = project_root / 'data' / 'Simulations'
@@ -93,12 +102,8 @@ TOOLS_FOLDER.mkdir(parents=True, exist_ok=True)
 LOGS_FOLDER.mkdir(parents=True, exist_ok=True)
 TEMP_FOLDER.mkdir(parents=True, exist_ok=True)
 
-print(f"✓ Created directory structure:")
-print(f"  - Upload folder: {UPLOAD_FOLDER}")
-print(f"  - Simulations folder: {SIMULATIONS_FOLDER}")
-print(f"  - Tools folder: {TOOLS_FOLDER}")
-print(f"  - Logs folder: {LOGS_FOLDER}")
-print(f"  - Temp folder: {TEMP_FOLDER}")
+logger.info("Directory structure ensured: uploads=%s simulations=%s tools=%s logs=%s temp=%s",
+            UPLOAD_FOLDER, SIMULATIONS_FOLDER, TOOLS_FOLDER, LOGS_FOLDER, TEMP_FOLDER)
 
 from flask import Flask, request, jsonify, send_file, render_template, flash, redirect, url_for
 from flask_cors import CORS
@@ -108,7 +113,7 @@ from flask_socketio import emit
 try:
     from src.config.socket_config import socket_config
 except ImportError as e:
-    print(f"ERROR: Could not import socket_config: {e}")
+    logger.exception("Could not import socket_config")
     sys.exit(1)
 
 try:
@@ -116,7 +121,7 @@ try:
     from modules.vfp_processing import readGEO as rG
     from modules.vfp_processing.readVFP import readVIS, readCP, readFORCE, readFLOW
 except ImportError as e:
-    print(f"ERROR: Could not import VFP modules: {e}")
+    logger.exception("Could not import VFP modules")
     modules_path = current_dir / 'modules'
     if modules_path.exists():
         for item in modules_path.iterdir():
@@ -171,56 +176,125 @@ def upload_vfp():
         return jsonify({'error': 'No selected file'}), 400
     original_name = secure_filename(file.filename)
 
-    # Save the original file with a unique ID (keeps full results for later retrieval)
+    # Save to a unique temp directory under uploads
     upload_id = str(uuid.uuid4())
-    stored_name = f"{upload_id}.vfp"
-    save_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_name)
-    file.save(save_path)
+    upload_dir = Path(app.config['UPLOAD_FOLDER']) / upload_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = upload_dir / original_name
+    file.save(upload_path)
 
-    # Load JSON to prepare a sanitized response
+    # Debug info to help trace failures in production logs
+    logger.debug("upload_vfp upload_id=%s saved_to=%s", upload_id, upload_path)
+
+    # Run JSON splitter script against the uploaded file
+    splitter_script = project_root / 'modules' / 'json-splitter.py'
+    if not splitter_script.exists():
+        return jsonify({'error': f'json-splitter script not found at {splitter_script}'}), 500
+
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(splitter_script), str(upload_path)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    logger.debug("splitter returncode=%s", result.returncode)
+    if result.stdout:
+        logger.debug("splitter stdout length=%d", len(result.stdout))
+    if result.stderr:
+        logger.warning("splitter stderr length=%d", len(result.stderr))
+
+    if result.returncode != 0:
+        return jsonify({
+            'error': 'Failed to split JSON file',
+            'details': result.stderr.strip() or result.stdout.strip()
+        }), 500
+
+    split_dir = upload_dir / 'split-json'
+    main_file = split_dir / 'main.json'
+    manifest_file = split_dir / 'manifest.json'
+
+    logger.debug("upload_vfp split_dir=%s main_exists=%s manifest_exists=%s",
+                 split_dir, main_file.exists(), manifest_file.exists())
+
+    if not main_file.exists() or not manifest_file.exists():
+        return jsonify({'error': 'Split output files not found'}), 500
+
     try:
-        with open(save_path, 'r', encoding='utf-8') as f:
-            vfp_json = json.load(f)
+        with open(main_file, 'r', encoding='utf-8') as f:
+            main_json = json.load(f)
+        with open(manifest_file, 'r', encoding='utf-8') as f:
+            manifest_json = json.load(f)
     except Exception as e:
-        return jsonify({'error': f'Failed to parse VFP file: {e}'}), 400
+        return jsonify({'error': f'Failed to read split output: {e}'}), 500
 
-    # Inject upload ID into formData
-    form_data = vfp_json.get('formData', {}) if isinstance(vfp_json.get('formData'), dict) else {}
-    form_data['uploadID'] = upload_id
-    vfp_json['formData'] = form_data
-
-    # Prepare sanitized copy with results stripped (but keys preserved)
-    sanitized = copy.deepcopy(vfp_json)
-    results = sanitized.get('results')
-    if isinstance(results, dict):
-        for cfg_key in ['wingConfig', 'tailConfig']:
-            cfg_val = results.get(cfg_key)
-            if isinstance(cfg_val, dict):
-                for flow_key in list(cfg_val.keys()):
-                    cfg_val[flow_key] = {}
-
-    sanitized['uploadedFileName'] = original_name
-
-    return jsonify(sanitized)
+    return jsonify({
+        'uploadId': upload_id,
+        'uploadedFileName': original_name,
+        'main': main_json,
+        'manifest': manifest_json
+    })
 
 @app.route('/get_vfp_result_files', methods=['POST'])
 def get_vfp_result_files():
-    data = request.get_json()
-    vfpFileName = data['vfpFileName']
-    configType = data['configType']  # 'wingConfig' or 'tailConfig'
-    flowFile = data['flowFile']
-    vfp_path = os.path.join(app.config['UPLOAD_FOLDER'], vfpFileName)
-    vfp_json = load_vfp_json(vfp_path)
-    results = vfp_json.get('results', {})
-    config = results.get(configType, {})
-    if flowFile not in config:
-        return jsonify({})
-    files = list(config[flowFile].keys())
+    try:
+        data = request.get_json() or {}
+    except Exception:
+        logger.exception("get_vfp_result_files: invalid JSON payload")
+        return jsonify({'error': 'Invalid JSON payload'}), 400
+
+    upload_id = data.get('uploadId')
+    vfp_file_name = data.get('vfpFileName')
+    flow_file = data.get('flowFile')
+    flow_key = data.get('flowKey')
+    flow_path = data.get('flowPath')
+
+    if not upload_id or not vfp_file_name or not flow_file:
+        logger.warning(
+            "get_vfp_result_files: missing required fields uploadId=%s vfpFileName=%s flowFile=%s",
+            upload_id, vfp_file_name, flow_file
+        )
+        return jsonify({'error': 'uploadId, vfpFileName, and flowFile are required'}), 400
+
+    upload_dir = Path(app.config['UPLOAD_FOLDER']) / upload_id
+    split_dir = upload_dir / 'split-json'
+    # Prefer the specific flow file under split-json; append .json if the caller omitted it
+    target_name = flow_file if flow_file.lower().endswith('.json') else f"{flow_file}.json"
+    vfp_path = split_dir / target_name
+
+    if not vfp_path.exists():
+        logger.error(
+            "get_vfp_result_files: vfp json not found uploadId=%s path=%s",
+            upload_id, vfp_path
+        )
+        return jsonify({'error': 'VFP file not found for provided uploadId'}), 404
+
+    logger.debug(
+        "get_vfp_result_files: reading vfp uploadId=%s file=%s flowFile=%s flowKey=%s flowPath=%s",
+        upload_id, vfp_path, flow_file, flow_key, flow_path
+    )
+
+    try:
+        vfp_json = load_vfp_json(vfp_path)
+    except Exception:
+        logger.exception("get_vfp_result_files: failed to load vfp json path=%s", vfp_path)
+        return jsonify({'error': 'Failed to read VFP file'}), 500
+
+    # The JSON now directly maps file names to content objects (no nested results/config nodes)
+    files = list(vfp_json.keys())
     file_groups = {}
     for fname in files:
         ext = fname.split('.')[-1].lower()
-        key = ext if ext in ['cp', 'dat', 'forces', 'geo', 'map', 'txt', 'log'] else 'other'
+        key = ext if ext in ['cp', 'dat', 'forces', 'geo', 'map', 'txt', 'log', 'vis', 'conv', 'sum'] else 'other'
         file_groups.setdefault(key, []).append({'name': fname})
+
+    logger.debug(
+        "get_vfp_result_files: grouped files uploadId=%s flowFile=%s counts=%s",
+        upload_id, flow_file, {k: len(v) for k, v in file_groups.items()}
+    )
     return jsonify(file_groups)
 
 @app.route('/parse_vfp_file', methods=['POST'])
@@ -408,7 +482,7 @@ def run_vfp():
             "Warnings": "; ".join(warnings) if warnings else None
         }
 
-        print(vfpData["formData"])
+        logger.info("VFP case created: simName=%s", simName)
         return jsonify(vfpData), 200
 
     except Exception as e:
@@ -463,13 +537,13 @@ def start_simulation(msg):
         try:
             vfp_data = msg.get('vfpData') if isinstance(msg, dict) else None
 
-            # Optional fallback to stored payload if an uploadId is present
-            if not vfp_data and isinstance(msg, dict) and msg.get('uploadId'):
-                upload_id = msg.get('uploadId')
-                stored_path = os.path.join(UPLOAD_FOLDER, f"{upload_id}.json")
-                if os.path.exists(stored_path):
-                    with open(stored_path, 'r', encoding='utf-8') as f:
-                        vfp_data = json.load(f)
+            # # Optional fallback to stored payload if an uploadId is present
+            # if not vfp_data and isinstance(msg, dict) and msg.get('uploadId'):
+            #     upload_id = msg.get('uploadId')
+            #     stored_path = os.path.join(UPLOAD_FOLDER, f"{upload_id}.json")
+            #     if os.path.exists(stored_path):
+            #         with open(stored_path, 'r', encoding='utf-8') as f:
+            #             vfp_data = json.load(f)
 
             if not vfp_data:
                 socketio.emit('error', "vfpData is required to start a simulation", room=sid)
@@ -519,7 +593,7 @@ def start_simulation(msg):
             if result_file and result_file.exists():
                 with open(result_file, "r", encoding="utf-8") as rf:
                     result_data = json.load(rf)
-                socketio.emit('simulation_finished', {'simName': sim_name, 'results': result_data}, room=sid)
+                socketio.emit('simulation_finished', {'simName': sim_name}, room=sid)
             else:
                 socketio.emit('error', f"Simulation finished but result file not found. Return code: {return_code}", room=sid)
 
@@ -592,42 +666,32 @@ def stop_simulation():
 @app.route('/parse_cp', methods=['POST'])
 def parse_cp():
     try:
-        print("=== DEBUG: parse_cp endpoint called ===")
+        logger.debug("parse_cp endpoint called")
         if 'file' not in request.files:
-            print("DEBUG: No file in request")
             return jsonify({'error': 'No file provided'}), 400
         file = request.files['file']
         file_name = request.form.get('fileName', file.filename)
         sim_name = request.form.get('simName', 'unknown')
         if file.filename == '':
-            print("DEBUG: Empty filename")
             return jsonify({'error': 'No file selected'}), 400
-        print(f"DEBUG: Processing file - fileName={file_name}, simName={sim_name}")
+        logger.debug("parse_cp processing fileName=%s simName=%s", file_name, sim_name)
         temp_file_path = f"{file_name}"
-        print(f"DEBUG: Using temp file: {temp_file_path}")
         try:
             file.save(temp_file_path)
-            print("DEBUG: File saved to temporary location")
-            print("DEBUG: Calling readCP function...")
             parsed_data = readCP(temp_file_path)
-            print(f"DEBUG: readCP returned: {type(parsed_data)}")
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-                print("DEBUG: Temporary file cleaned up")
             if parsed_data is None:
-                print("DEBUG: readCP returned None")
                 return jsonify({'error': 'Failed to parse CP file - readCP returned None'}), 500
-            print(f"Successfully parsed CP file: {file_name}")
+            logger.info("Successfully parsed CP file: %s", file_name)
             return jsonify(parsed_data), 200
         except Exception as file_error:
-            print(f"DEBUG: File operation error: {str(file_error)}")
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
             raise file_error
     except Exception as e:
-        print(f"DEBUG: General error in parse_cp: {str(e)}")
         import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        logger.exception("Error in parse_cp")
         return jsonify({
             'error': f'Error parsing CP file: {str(e)}',
             'traceback': traceback.format_exc()
@@ -636,42 +700,32 @@ def parse_cp():
 @app.route('/parse_forces', methods=['POST'])
 def parse_forces():
     try:
-        print("=== DEBUG: parse_forces endpoint called ===")
+        logger.debug("parse_forces endpoint called")
         if 'file' not in request.files:
-            print("DEBUG: No file in request")
             return jsonify({'error': 'No file provided'}), 400
         file = request.files['file']
         file_name = request.form.get('fileName', file.filename)
         sim_name = request.form.get('simName', 'unknown')
         if file.filename == '':
-            print("DEBUG: Empty filename")
             return jsonify({'error': 'No file selected'}), 400
-        print(f"DEBUG: Processing file - fileName={file_name}, simName={sim_name}")
+        logger.debug("parse_forces processing fileName=%s simName=%s", file_name, sim_name)
         temp_file_path = f"temp_{sim_name}_{file_name}"
-        print(f"DEBUG: Using temp file: {temp_file_path}")
         try:
             file.save(temp_file_path)
-            print("DEBUG: File saved to temporary location")
-            print("DEBUG: Calling readFORCE function...")
             parsed_data = readFORCE(temp_file_path)
-            print(f"DEBUG: readFORCE returned: {type(parsed_data)}")
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-                print("DEBUG: Temporary file cleaned up")
             if parsed_data is None:
-                print("DEBUG: readFORCE returned None")
                 return jsonify({'error': 'Failed to parse Forces file - readFORCE returned None'}), 500
-            print(f"Successfully parsed Forces file: {file_name}")
+            logger.info("Successfully parsed Forces file: %s", file_name)
             return jsonify(parsed_data), 200
         except Exception as file_error:
-            print(f"DEBUG: File operation error: {str(file_error)}")
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
             raise file_error
     except Exception as e:
-        print(f"DEBUG: General error in parse_forces: {str(e)}")
         import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        logger.exception("Error in parse_forces")
         return jsonify({
             'error': f'Error parsing Forces file: {str(e)}',
             'traceback': traceback.format_exc()
@@ -680,42 +734,32 @@ def parse_forces():
 @app.route('/parse_dat', methods=['POST'])
 def parse_dat():
     try:
-        print("=== DEBUG: parse_dat endpoint called ===")
+        logger.debug("parse_dat endpoint called")
         if 'file' not in request.files:
-            print("DEBUG: No file in request")
             return jsonify({'error': 'No file provided'}), 400
         file = request.files['file']
         file_name = request.form.get('fileName', file.filename)
         sim_name = request.form.get('simName', 'unknown')
         if file.filename == '':
-            print("DEBUG: Empty filename")
             return jsonify({'error': 'No file selected'}), 400
-        print(f"DEBUG: Processing file - fileName={file_name}, simName={sim_name}")
+        logger.debug("parse_dat processing fileName=%s simName=%s", file_name, sim_name)
         temp_file_path = f"temp_{sim_name}_{file_name}"
-        print(f"DEBUG: Using temp file: {temp_file_path}")
         try:
             file.save(temp_file_path)
-            print("DEBUG: File saved to temporary location")
-            print("DEBUG: Calling readFLOW function...")
             parsed_data = readFLOW(temp_file_path)
-            print(f"DEBUG: readFLOW returned: {type(parsed_data)}")
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-                print("DEBUG: Temporary file cleaned up")
             if parsed_data is None:
-                print("DEBUG: readFLOW returned None")
                 return jsonify({'error': 'Failed to parse DAT file - readFLOW returned None'}), 500
-            print(f"Successfully parsed DAT file: {file_name}")
+            logger.info("Successfully parsed DAT file: %s", file_name)
             return jsonify(parsed_data), 200
         except Exception as file_error:
-            print(f"DEBUG: File operation error: {str(file_error)}")
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
             raise file_error
     except Exception as e:
-        print(f"DEBUG: General error in parse_dat: {str(e)}")
         import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        logger.exception("Error in parse_dat")
         return jsonify({
             'error': f'Error parsing DAT file: {str(e)}',
             'traceback': traceback.format_exc()
@@ -770,12 +814,10 @@ def compute_tail_downwash():
         except Exception as ser_err:
             import traceback
             app.logger.exception("Serialization error in compute_tail_downwash")
-            traceback.print_exc()
             return jsonify({'error': f'Serialization error: {ser_err}'}), 500
     except Exception as e:
         import traceback
         app.logger.exception("Unhandled error in compute_tail_downwash")
-        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/boundary_layer_data', methods=['POST'])
@@ -1106,12 +1148,12 @@ def compute():
         NELMNT = float(data["NELMNT"])
         CL0 = np.array(data["CL0"], dtype=float)
         CD0 = np.array(data["CD0"], dtype=float)
-        print("Received CD0:", CD0)
+        logger.debug("prowim compute CD0 length=%d", len(CD0))
         KS00 = np.array(data["KS00"], dtype=float)
         ALFAWI = np.array(data["ALFAWI"], dtype=float)
         KS0D = compute_KS0D(CL0, CD0, A)
         TS0D = compute_TS0D(CL0, CD0, A)
-        print("Computed TS0D:", TS0D)
+        logger.debug("Computed TS0D len=%d", len(TS0D))
         Hzp = round((1 - 2.5 * abs(ZPD)), 2)
         Kdc = round((-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038), 2)
         Izp = round((455.93 * ZPD ** 6 - 10.67 * ZPD**5 - 87.221 * ZPD**4 -
@@ -1119,7 +1161,7 @@ def compute():
         TS0Ap0_1d = -2 * Kdc * alpha0
         TS10 = Hzp * TS0Ap0_1d + 1.15 * Kdc * Izp * IW + (ALFAWI - IW)
         theta_s = TS0D + (CT + 0.3 * np.sin(np.radians(float(CT)**1.36))) * (TS10 - TS0D)
-        print("Computed theta_s:", theta_s)
+        logger.debug("Computed theta_s len=%d", len(theta_s))
         ks = KS0D + CT * (KS00 - KS0D)
         r = math.sqrt(1 - CT)
         theta_s = np.array(theta_s, dtype=float)
@@ -1139,6 +1181,10 @@ def compute():
         CXwf = CX - CT * np.cos(np.radians(alpha_p))
         CXDwf = CXwf * NSPSW / (1 - CT)
         CXD = (CX * NSPSW / (1 - CT))
+        logger.debug("Computed CX len=%d", len(CX))
+        logger.debug("Computed CXwf len=%d", len(CXwf))
+        logger.debug("Computed CXDwf len=%d", len(CXDwf))
+        logger.debug("Computed CXD len=%d", len(CXD))
         results = []
         for i in range(len(CL0)):
             result_item = {
@@ -1160,7 +1206,7 @@ def compute():
         return jsonify(response)
     except Exception as e:
         import traceback
-        traceback.print_exc()
+        logger.exception("Error in prowim-compute")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/compute_desired', methods=['POST'])
