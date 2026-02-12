@@ -1,11 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Plot from 'react-plotly.js';
 import { fetchAPI } from '../utils/fetch';
-import { useSimulationData } from "../components/SimulationDataContext"; // Use context from correct path
+import { useSimulationData } from "../components/SimulationDataContext";
 import regression from 'regression';
-import { DEG2RAD } from "three/src/math/MathUtils.js";
-
 
 function PostProcessing() {
   // --- Routing and Context ---
@@ -14,6 +12,9 @@ function PostProcessing() {
   const {
     simulationData, setSimulationData,
     selectedFiles, setSelectedFiles,
+    polars, setPolars,
+    polarsSource, setPolarsSource,
+    aeroCoefficients, setAeroCoefficients,
     selectedLevel, setSelectedLevel,
     selectedSection, setSelectedSection,
     selectedPlotType, setSelectedPlotType,
@@ -24,10 +25,7 @@ function PostProcessing() {
     selectedTailFile, setSelectedTailFile,
     selectedtailGEOFile, setSelectedtailGEOFile,
     tailPlaneParams, setTailPlaneParams
-
   } = useSimulationData();
-
-  const [isLoadingTail, setIsLoadingTail] = useState(false);
 
   // --- UI State ---
   const [isExplorerOpen, setIsExplorerOpen] = useState(true);
@@ -35,9 +33,8 @@ function PostProcessing() {
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef(null);
 
-
   const [isTextMode, setIsTextMode] = useState(false);
-  const [openedTextFiles, setOpenedTextFiles] = useState([]); // [{file, content}]
+  const [openedTextFiles, setOpenedTextFiles] = useState([]);
   const [activeTextTab, setActiveTextTab] = useState(null);
 
   // --- Dropdown and Plot States ---
@@ -54,6 +51,7 @@ function PostProcessing() {
   const [isLoadingCP, setIsLoadingCP] = useState(false);
   const [isLoadingForces, setIsLoadingForces] = useState(false);
   const [isLoadingDAT, setIsLoadingDAT] = useState(false);
+  const [isLoadingTail, setIsLoadingTail] = useState(false);
 
   // --- Coefficients Data ---
   const [coefficients, setCoefficients] = useState({
@@ -64,87 +62,376 @@ function PostProcessing() {
 
   const [epsilon, setEpsilon] = useState(null);
 
-  const [wingAlphaDeg, setWingAlphaDeg] = useState(null);
-  const [effectiveTailAoADeg, setEffectiveTailAoADeg] = useState(null);
-
   const [dragBreakdown, setDragBreakdown] = useState({
     cdInduced: 0.000,
     cdViscous: 0.000,
     cdWave: 0.000
   });
 
+  const extractPolars = useCallback((meta) => {
+    const rawPolars = meta?.results?.wingConfig?.Polars || meta?.Polars || meta?.polars;
+    if (!rawPolars) return null;
 
-  // --- Utility: Convert files array to expected object structure ---
-  const convertFilesArrayToObject = (filesArray) => {
-    const fileTypes = {
-      dat: [],
-      cp: [],
-      forces: [],
-      geo: [],
-      map: [],
-      txt: [],
-      log: [],
-      other: [],
-      tail: []
+    const alphaArr = rawPolars.alpha || rawPolars.ALFAWI || rawPolars.alfa || rawPolars.ALPHA;
+    const clArr = rawPolars.CL || rawPolars.cl || rawPolars.CL0;
+    const cdArr = rawPolars.CDtotVFP || rawPolars.cd || rawPolars.CD || rawPolars.CD0;
+
+    const valid = Array.isArray(alphaArr) && Array.isArray(clArr) && Array.isArray(cdArr) &&
+      alphaArr.length > 0 && clArr.length > 0 && cdArr.length > 0;
+    if (!valid) return null;
+
+    return {
+      alpha: alphaArr,
+      cl: clArr,
+      cd: cdArr
     };
+  }, []);
 
-    if (!Array.isArray(filesArray)) {
-      console.log('Files is not an array:', filesArray);
-      return fileTypes;
+  const navigationTransferRef = useRef(null);
+
+  // --- VFP File State ---
+  const [vfpFile, setVfpFile] = useState(null);
+  const [vfpMeta, setVfpMeta] = useState(null);
+  const [selectedWingFlowFile, setSelectedWingFlowFile] = useState('');
+  const [selectedTailFlowFile, setSelectedTailFlowFile] = useState('');
+  const [wingResultFiles, setWingResultFiles] = useState({});
+  const [tailResultFiles, setTailResultFiles] = useState({});
+
+  // --- Derived flow lists (handles new manifest format) ---
+  const wingFlowFiles = useMemo(() => {
+    const splitNodes = vfpMeta?.manifest?.splitNodes;
+    if (!Array.isArray(splitNodes)) return [];
+    return splitNodes.map(node => ({
+      key: node.key || node.file || '',
+      file: node.file || node.key || '',
+      path: node.path || '',
+      size: node.size
+    })).filter(node => node.key);
+  }, [vfpMeta]);
+
+  // Placeholder for tail flows if backend adds them in manifest later
+  const tailFlowFiles = useMemo(() => {
+    const flows = vfpMeta?.tailConfig?.flowFiles;
+    if (Array.isArray(flows)) return flows.map(flow => ({ key: flow, file: flow }));
+    if (flows && typeof flows === 'object') return Object.keys(flows).map(flow => ({ key: flow, file: flow }));
+    return [];
+  }, [vfpMeta]);
+
+  const wingFlowMap = useMemo(() => {
+    const map = {};
+    wingFlowFiles.forEach(node => { map[node.key] = node; });
+    return map;
+  }, [wingFlowFiles]);
+
+  const tailFlowMap = useMemo(() => {
+    const map = {};
+    tailFlowFiles.forEach(node => { map[node.key] = node; });
+    return map;
+  }, [tailFlowFiles]);
+
+  // --- Shared reset + ingest helpers ---
+  const resetVfpState = useCallback(() => {
+    setSimulationData(null);
+    setParsedCpData(null);
+    setParsedDatData(null);
+    setParsedForcesData(null);
+    setSelectedFiles({ dat: null, cp: null, forces: null });
+    setSelectedWingFlowFile('');
+    setSelectedTailFlowFile('');
+    setWingResultFiles({});
+    setTailResultFiles({});
+    setLevels([]);
+    setSections([]);
+    setSelectedLevel('');
+    setSelectedSection('');
+    setPlotData1(null);
+    setPlotData2(null);
+    setMeshData(null);
+    setShowMesh(false);
+    setShowSpanwiseDistribution(false);
+    setSelectedSpanwiseCoeff('CL');
+    setSpanwiseData(null);
+    setIsTextMode(false);
+    setOpenedTextFiles([]);
+    setActiveTextTab(null);
+    setIsLoadingCP(false);
+    setIsLoadingForces(false);
+    setIsLoadingDAT(false);
+    setCoefficients({
+      CL: 0.000000,
+      CD: 0.000000,
+      CM: -0.000000
+    });
+    setDragBreakdown({
+      cdInduced: 0.000,
+      cdViscous: 0.000,
+      cdWave: 0.000
+    });
+  }, []);
+
+  const ingestVfpFile = useCallback(async (file) => {
+    if (!file) return;
+    resetVfpState();
+    setVfpFile(file);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const response = await fetchAPI('/upload_vfp', {
+        method: 'POST',
+        body: formData
+      });
+      if (!response.ok) throw new Error('Failed to upload .vfp file');
+      const meta = await response.json();
+      console.log('VFP Meta:', meta);
+
+      // Normalize new response shape: hoist main + manifest + ids
+      const normalizedMeta = {
+        ...meta?.main,
+        manifest: meta?.manifest,
+        uploadId: meta?.uploadId || meta?.main?.uploadId,
+        uploadedFileName: meta?.uploadedFileName || meta?.main?.uploadedFileName,
+        results: meta?.main?.results || meta?.results
+      };
+
+      setVfpMeta(normalizedMeta);
+
+       const polars = extractPolars(normalizedMeta);
+       if (polars) {
+        setPolars(polars);
+        setPolarsSource('backend');
+        setSimulationData(prev => ({
+          ...(prev || {}),
+          polars,
+          polarsSource: 'backend',
+          simName: normalizedMeta?.formData?.simName || meta?.simName || prev?.simName || ''
+        }));
+       } else {
+        setPolars(null);
+        setPolarsSource('none');
+        setSimulationData(prev => ({ ...(prev || {}), polars: null, polarsSource: 'none' }));
+       }
+    } catch (err) {
+      alert('Error uploading .vfp file: ' + err.message);
+      setVfpMeta(null);
     }
+  }, [extractPolars, resetVfpState, setPolars, setPolarsSource, setSimulationData]);
 
-    filesArray.forEach(file => {
-      if (!file || !file.name) {
-        console.log('Invalid file object:', file);
-        return;
-      }
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'other';
-      if (fileTypes[ext]) {
-        fileTypes[ext].push(file);
-      } else {
-        fileTypes.other.push(file);
-      }
-    });
-
-    Object.keys(fileTypes).forEach(type => {
-      fileTypes[type].sort((a, b) => a.name.localeCompare(b.name));
-    });
-
-    return fileTypes;
+  // --- Upload VFP File and Fetch Metadata ---
+  const handleVfpFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    ingestVfpFile(file);
   };
 
-  // --- Effect: Process simulation data on mount or location change ---
+  // --- Auto-import from SimulationRun navigation ---
   useEffect(() => {
-    console.log('[DEBUG] Location state received:', location.state);
+    const navFile = location.state?.vfpFile;
+    const transferId = location.state?.transferId;
 
-    if (location.state && location.state.simulationFolder) {
-      console.log('[DEBUG] Raw simulation folder data:', location.state.simulationFolder);
+    if (!navFile || !transferId) return;
+    if (navigationTransferRef.current === transferId) return;
 
-      const receivedData = location.state.simulationFolder;
-      let finalData = null;
-
-      if (receivedData.data) {
-        console.log('[DEBUG] Processing server socket data:', receivedData.data);
-        finalData = receivedData.data;
-      } else {
-        console.log('[DEBUG] Processing direct data:', receivedData);
-        finalData = receivedData;
-      }
-
-      if (finalData && Array.isArray(finalData.files)) {
-        console.log('[DEBUG] Converting files array to object structure');
-        finalData = {
-          ...finalData,
-          files: convertFilesArrayToObject(finalData.files)
-        };
-        console.log('[DEBUG] Converted data:', finalData);
-      }
-
-      setSimulationData(finalData); // Store in context
+    navigationTransferRef.current = transferId;
+    if (navFile instanceof File) {
+      ingestVfpFile(navFile);
     }
-  }, [location.state, setSimulationData]);
 
-  // --- Effect: Update levels dropdown when parsed data changes ---
+    // Clear the state so a refresh doesn't re-run the import
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [ingestVfpFile, location.pathname, location.state, navigate]);
+
+  // --- Fetch Result Files for Selected Wing Flow File ---
+  useEffect(() => {
+    if (!vfpMeta || !selectedWingFlowFile) {
+      setWingResultFiles({});
+      return;
+    }
+    const fetchWingResultFiles = async () => {
+      const node = wingFlowMap[selectedWingFlowFile];
+      if (!node) return;
+      try {
+        const response = await fetchAPI('/get_vfp_result_files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uploadId: vfpMeta.uploadId,
+            vfpFileName: vfpMeta.uploadedFileName,
+            configType: 'wingConfig',
+            flowFile: node.file || selectedWingFlowFile,
+            flowKey: node.key,
+            flowPath: node.path
+          })
+        });
+        if (!response.ok) throw new Error('Failed to get wing result files');
+        const files = await response.json();
+        console.log('Wing result files:', files);
+        setWingResultFiles(files);
+        setSimulationData(prev => ({
+          ...(prev || {}),
+          simName: `wing / ${selectedWingFlowFile}`,
+          files,
+          polars: prev?.polars || null,
+          polarsSource: prev?.polarsSource
+        }));
+      } catch (err) {
+        alert('Error fetching wing result files: ' + err.message);
+        setWingResultFiles({});
+      }
+    };
+    fetchWingResultFiles();
+  }, [vfpMeta, selectedWingFlowFile, wingFlowMap]);
+
+  // --- Fetch Result Files for Selected Tail Flow File ---
+  useEffect(() => {
+    if (!vfpMeta || !selectedTailFlowFile) {
+      setTailResultFiles({});
+      return;
+    }
+    const fetchTailResultFiles = async () => {
+      const node = tailFlowMap[selectedTailFlowFile];
+      if (!node) return;
+      try {
+        const response = await fetchAPI('/get_vfp_result_files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uploadId: vfpMeta.uploadId,
+            vfpFileName: vfpMeta.uploadedFileName,
+            configType: 'tailConfig',
+            flowFile: node.file || selectedTailFlowFile,
+            flowKey: node.key,
+            flowPath: node.path
+          })
+        });
+        if (!response.ok) throw new Error('Failed to get tail result files');
+        const files = await response.json();
+        setTailResultFiles(files);
+        setSimulationData(prev => ({
+          ...(prev || {}),
+          simName: `tail / ${selectedTailFlowFile}`,
+          files,
+          polars: prev?.polars || null,
+          polarsSource: prev?.polarsSource
+        }));
+      } catch (err) {
+        alert('Error fetching tail result files: ' + err.message);
+        setTailResultFiles({});
+      }
+    };
+    fetchTailResultFiles();
+  }, [vfpMeta, selectedTailFlowFile, tailFlowMap]);
+
+  // --- Request Parsed Data for Selected Flow File ---
+  const requestParsedData = async (configType, flowFile, ext) => {
+    if (!vfpMeta || !flowFile) return;
+    if (!['dat', 'cp', 'forces'].includes(ext)) return;
+
+    const flowNode = configType === 'wingConfig' ? wingFlowMap[flowFile] : tailFlowMap[flowFile];
+    const flowFileName = flowNode?.file || flowFile;
+
+    if (ext === 'cp') {
+      setIsLoadingCP(true);
+      setParsedCpData(null);
+      setSections([]);
+      setSelectedLevel('');
+      setSelectedSection('');
+    }
+    if (ext === 'forces') {
+      setIsLoadingForces(true);
+      setParsedForcesData(null);
+    }
+    if (ext === 'dat') {
+      setIsLoadingDAT(true);
+      setParsedDatData(null);
+    }
+
+    try {
+      const response = await fetchAPI('/parse_vfp_file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploadId: vfpMeta.uploadId,
+          vfpFileName: vfpMeta.uploadedFileName,
+          configType,
+          flowFile: flowFileName,
+          flowKey: flowNode?.key,
+          flowPath: flowNode?.path,
+          fileType: ext
+        })
+      });
+      if (!response.ok) throw new Error('Failed to parse file');
+      const parsedData = await response.json();
+
+      if (ext === 'cp') {
+        setParsedCpData(parsedData);
+        console.log('Parsed CP Data:', parsedData);
+        setIsLoadingCP(false);
+        setSelectedFiles(prev => ({ ...prev, cp: { name: `${flowFile}-cp`, configType, flowFile } }));
+      }
+
+      if (ext === 'dat') {
+        setParsedDatData(parsedData);
+        setIsLoadingDAT(false);
+        setSelectedFiles(prev => ({ ...prev, dat: { name: `${flowFile}-dat`, configType, flowFile } }));
+      }
+
+      if (ext === 'forces') {
+        setParsedForcesData(parsedData);
+        console.log('Parsed Forces Data:', parsedData);
+        setIsLoadingForces(false);
+        setSelectedFiles(prev => ({ ...prev, forces: { name: `${flowFile}-forces`, configType, flowFile } }));
+
+        if (parsedData.levels && Object.keys(parsedData.levels).length > 0) {
+          const levelKeys = Object.keys(parsedData.levels);
+          const sortedLevelKeys = levelKeys.sort((a, b) => {
+            const aNum = parseInt(a.match(/\d+/)?.[0] || 0);
+            const bNum = parseInt(b.match(/\d+/)?.[0] || 0);
+            return bNum - aNum;
+          });
+          const highestLevelKey = sortedLevelKeys[sortedLevelKeys.length - 1];
+          const highestLevel = parsedData.levels[highestLevelKey];
+          if (highestLevel.coefficients) {
+            setCoefficients({
+              CL: highestLevel.ibeCoefficients?.CL || highestLevel.coefficients.CL || 0.000000,
+              CD: highestLevel.coefficients.CD || 0.000000,
+              CM: highestLevel.coefficients.CM || 0.000000
+            });
+            setAeroCoefficients({
+              CL: highestLevel.ibeCoefficients?.CL || highestLevel.coefficients.CL || 0.000000,
+              CD: highestLevel.coefficients.CD || 0.000000,
+              CM: highestLevel.coefficients.CM || 0.000000
+            });
+            setSimulationData(prev => ({
+              ...(prev || {}),
+              aeroCoefficients: {
+                CL: highestLevel.ibeCoefficients?.CL || highestLevel.coefficients.CL || 0.000000,
+                CD: highestLevel.coefficients.CD || 0.000000,
+                CM: highestLevel.coefficients.CM || 0.000000
+              }
+            }));
+          }
+          setDragBreakdown({
+            cdInduced: highestLevel.vortexCoefficients?.CD || 0.000,
+            cdViscous: highestLevel.viscousDragData?.totalViscousDrag || 0.000,
+            cdWave: dragBreakdown.cdWave
+          });
+        }
+      }
+    } catch (err) {
+      alert('Error parsing file: ' + err.message);
+      setIsLoadingCP(false);
+      setIsLoadingForces(false);
+      setIsLoadingDAT(false);
+    }
+  };
+
+  // --- File Selection Utility ---
+  const isFileSelected = (file) => {
+    return Object.values(selectedFiles).some(selected => selected?.name === file.name);
+  };
+
+  // --- Level/Section Dropdowns ---
   useEffect(() => {
     let availableLevels = [];
     if (parsedCpData && parsedCpData.levels) {
@@ -177,7 +464,6 @@ function PostProcessing() {
     }
   }, [parsedCpData, parsedDatData, selectedLevel]);
 
-  // --- Effect: Update sections dropdown when level selection changes ---
   useEffect(() => {
     if (parsedCpData && selectedLevel) {
       if (parsedCpData.levels && parsedCpData.levels[selectedLevel]) {
@@ -216,312 +502,6 @@ function PostProcessing() {
     }
   }, [parsedCpData, selectedLevel]);
 
-  // Extract wing angle of attack (alpha) from flowParameters (string/array/object)
-  const extractWingAlpha = (flowParams) => {
-    if (!flowParams) return null;
-
-    const toSearchableText = (input) => {
-      if (typeof input === 'string') return input;
-      if (Array.isArray(input)) return input.join('\n');
-      if (typeof input === 'object') return JSON.stringify(input);
-      return '';
-    };
-
-    const text = toSearchableText(flowParams);
-    if (!text) return null;
-
-    // Accept E or D exponent formats
-    const match = text.match(/ALPHA\s*=\s*([-+]?\d*\.?\d+(?:[eEdD][-+]?\d+)?)/);
-    console.log('[DEBUG] Extracting wing alpha from flow parameters text:', text, 'Match:', match);
-    if (!match) return null;
-    const raw = match[1].replace(/[dD]/, 'e');
-    const parsed = parseFloat(raw);
-    return Number.isFinite(parsed) ? parsed : null;
-  };
-
-  // Update wing alpha when CP data or level changes
-  useEffect(() => {
-    if (!parsedCpData || !selectedLevel) {
-      setWingAlphaDeg(null);
-      return;
-    }
-
-    const level = parsedCpData.levels?.[selectedLevel];
-    const flowParams = level?.flowParameters ?? parsedCpData.flowParameters;
-    console.log('[DEBUG] Extracting wing alpha from flow parameters:', flowParams);
-    const alpha = extractWingAlpha(flowParams);
-    setWingAlphaDeg(alpha);
-  }, [parsedCpData, selectedLevel]);
-
-  // Compute effective tail angle of attack = wing alpha - downwash angle
-  useEffect(() => {
-    const downwash = tailPlaneParams?.effective_epsilon_deg;
-    if (wingAlphaDeg !== null && downwash !== undefined) {
-      setEffectiveTailAoADeg(wingAlphaDeg - Math.abs(downwash));
-    } else {
-      setEffectiveTailAoADeg(null);
-    }
-  }, [wingAlphaDeg, tailPlaneParams]);
-
-  const handleTailFileSelect = async (tailFile) => {
-    // Require CP and GEO before triggering the computation; otherwise do nothing
-    const cpFile = selectedFiles.cp;
-    const geoFile = selectedtailGEOFile;
-    if (!tailFile || !cpFile || !geoFile) return;
-
-    setIsLoadingTail(true);
-    setSelectedTailFile(tailFile);
-
-    const formData = new FormData();
-    formData.append('tail', tailFile.file || tailFile);
-    formData.append('cp', cpFile.file || cpFile);
-    formData.append('geo', geoFile.file || geoFile);
-
-    try {
-      const response = await fetchAPI('/compute_tail_downwash', {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) throw new Error('Failed to compute tail parameters');
-      const data = await response.json();
-      setTailPlaneParams(data);
-    } catch (err) {
-      alert('Error computing tail parameters: ' + err.message);
-      setTailPlaneParams(null);
-    }
-    setIsLoadingTail(false);
-  };
-
-
-  useEffect(() => {
-    if (selectedTailFile && selectedFiles.cp && selectedtailGEOFile) {
-      handleTailFileSelect(selectedTailFile);
-    }
-    // eslint-disable-next-line
-  }, [selectedFiles.cp, selectedTailFile, selectedtailGEOFile]);
-
-
-  // --- File Upload and Parsing ---
-  const uploadAndParseFile = async (file, fileType) => {
-    try {
-      const formData = new FormData();
-      const simName = simulationData?.simName || 'unknown';
-
-      if (file.file) {
-        formData.append('file', file.file);
-      } else if (file instanceof File) {
-        formData.append('file', file);
-      } else {
-        const response = await fetchAPI(`/get_file_content`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            simName: simName,
-            filePath: file.path || file.name
-          })
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to get file content: ${response.status}`);
-        }
-        // Use .text() for plain text responses
-        const fileContent = response.text ? await response.text() : '';
-        const blob = new Blob([fileContent], { type: 'text/plain' });
-        formData.append('file', blob, file.name);
-      }
-
-      formData.append('fileName', file.name);
-      formData.append('simName', simName);
-
-      const parseResponse = await fetchAPI(`/parse_${fileType}`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!parseResponse.ok) {
-        const errorText = await parseResponse.text();
-        throw new Error(`Parse error! status: ${parseResponse.status}, message: ${errorText}`);
-      }
-
-      const parsedData = await parseResponse.json();
-      return parsedData;
-
-    } catch (error) {
-      console.error(`[DEBUG] Error parsing ${fileType} file:`, error);
-      alert(`Error parsing ${fileType} file: ${error.message}`);
-      return null;
-    }
-  };
-
-
-
-  const handleOpenTextFile = async (file) => {
-    // Check if already opened
-    if (openedTextFiles.some(f => f.file.path === file.path)) {
-      setActiveTextTab(file.path);
-      setIsEditing(true);
-      return;
-    }
-    let content = '';
-    if (file.file) {
-      content = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = reject;
-        reader.readAsText(file.file);
-      });
-    } else {
-      const simName = simulationData?.simName || 'unknown';
-      const response = await fetchAPI(`/get_file_content`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          simName: simName,
-          filePath: file.path || file.name
-        })
-      });
-      if (response.ok && response.text) {
-        content = await response.text();
-      }
-    }
-    setOpenedTextFiles(prev => [...prev, { file, content }]);
-    setActiveTextTab(file.path);
-    setIsEditing(true);
-  };
-
-  // --- File Selection Handler ---
-  // Allow multiple .dat files, process wavedrag files for CD Wave
-  const handleFileSelect = async (file) => {
-    const ext = file.name.split('.').pop().toLowerCase();
-    if (!['dat', 'cp', 'forces'].includes(ext)) return;
-
-    // For .dat files, allow multiple selection
-    if (ext === 'dat') {
-      setIsLoadingDAT(true);
-      setParsedDatData(null);
-
-      setSelectedFiles(prev => ({
-        ...prev,
-        dat: Array.isArray(prev.dat) ? [...prev.dat, file] : prev.dat ? [prev.dat, file] : [file]
-      }));
-
-      // Check if this is a wavedrag file
-      if (file.name.toLowerCase().includes('wavedrg')) {
-        let fileContent = '';
-        if (file.file) {
-          // Local file: read using FileReader
-          fileContent = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = reject;
-            reader.readAsText(file.file);
-          });
-        } else {
-          // Server file: fetch from API
-          const simName = simulationData?.simName || 'unknown';
-          const response = await fetchAPI(`/get_file_content`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              simName: simName,
-              filePath: file.path || file.name
-            })
-          });
-          if (response.ok && response.text) {
-            fileContent = await response.text();
-          }
-        }
-        // Find all lines with wave drag value
-        const waveDragLines = fileContent.match(/Total wave drag for block is CDW\(tot\) =\s*([\d.]+)/g) || [];
-        let waveDragSum = 0;
-        waveDragLines.forEach(line => {
-          const match = line.match(/CDW\(tot\) =\s*([\d.]+)/);
-          if (match) {
-            waveDragSum += parseFloat(match[1]);
-          }
-        });
-        // Print to console and update drag breakdown
-        const cdWaveValue = waveDragSum * 0.0001;
-        console.log('Total Wave Drag (CD Wave):', cdWaveValue.toFixed(6));
-        setDragBreakdown(prev => ({
-          ...prev,
-          cdWave: cdWaveValue
-        }));
-        setIsLoadingDAT(false);
-        return;
-      }
-
-      // Only parse the main flow .dat file (not wavedrag)
-      const parsedData = await uploadAndParseFile(file, ext);
-      setIsLoadingDAT(false);
-      if (parsedData) setParsedDatData(parsedData);
-      return;
-    }
-
-    // For cp and forces, single selection as before
-    setSelectedFiles(prev => ({
-      ...prev,
-      [ext]: file
-    }));
-
-    if (ext === 'cp') {
-      setIsLoadingCP(true);
-      setParsedCpData(null);
-      setSections([]);
-      setSelectedLevel('');
-      setSelectedSection('');
-    } else if (ext === 'forces') {
-      setIsLoadingForces(true);
-      setParsedForcesData(null);
-    }
-
-    const parsedData = await uploadAndParseFile(file, ext);
-
-    if (ext === 'cp') {
-      setIsLoadingCP(false);
-      if (parsedData) setParsedCpData(parsedData);
-    } else if (ext === 'forces') {
-      setIsLoadingForces(false);
-      if (parsedData) {
-        setParsedForcesData(parsedData);
-        console.log('[DEBUG] Parsed forces data:', parsedData);
-        if (parsedData.levels && Object.keys(parsedData.levels).length > 0) {
-          const levelKeys = Object.keys(parsedData.levels);
-          const sortedLevelKeys = levelKeys.sort((a, b) => {
-            const aNum = parseInt(a.match(/\d+/)?.[0] || 0);
-            const bNum = parseInt(b.match(/\d+/)?.[0] || 0);
-            return bNum - aNum;
-          });
-          const highestLevelKey = sortedLevelKeys[sortedLevelKeys.length - 1];
-          const highestLevel = parsedData.levels[highestLevelKey];
-          if (highestLevel.coefficients) {
-            setCoefficients({
-              CL: highestLevel.ibeCoefficients.CL || 0.000000,
-              CD: highestLevel.coefficients.CD || 0.000000,
-              CM: highestLevel.coefficients.CM || 0.000000
-            });
-          }
-          setDragBreakdown({
-            cdInduced: highestLevel.vortexCoefficients?.CD || 0.000,
-            cdViscous: highestLevel.viscousDragData?.totalViscousDrag || 0.000,
-            cdWave: dragBreakdown.cdWave // keep existing wave drag value
-          });
-        }
-      }
-    }
-  };
-
-  // --- Utility: File Selection ---
-  // Update isFileSelected to support multiple .dat files
-  const isFileSelected = (file) => {
-    if (Array.isArray(selectedFiles.dat)) {
-      if (selectedFiles.dat.some(selected => selected?.path === file.path)) return true;
-    } else if (selectedFiles.dat?.path === file.path) {
-      return true;
-    }
-    return Object.values(selectedFiles).some(selected => selected?.path === file.path);
-  };
-
-
   // --- Plot Generation ---
   const generatePlotData = useCallback(() => {
     if (selectedLevel && selectedPlotType && selectedSection && parsedCpData && !showMesh) {
@@ -534,8 +514,8 @@ function PostProcessing() {
     generatePlotData();
   }, [generatePlotData]);
 
+  // --- Polyarea Utility ---
   const polyarea = (x, y) => {
-    // Shoelace formula for area of polygon
     let area = 0;
     const n = x.length;
     for (let i = 0; i < n; i++) {
@@ -545,6 +525,7 @@ function PostProcessing() {
     return Math.abs(area) / 2;
   };
 
+  // --- Spanwise Plot Data ---
   const generateSpanwisePlotData = useCallback(() => {
     if (selectedLevel && selectedSpanwiseCoeff && parsedCpData && showSpanwiseDistribution) {
       if (!parsedCpData.levels || !parsedCpData.levels[selectedLevel]) return;
@@ -552,7 +533,6 @@ function PostProcessing() {
       const sections = level.sections;
       if (!sections || Object.keys(sections).length === 0) return;
 
-      // Gather yaveYtip, coeff, chord arrays
       const yaveYtipValues = [];
       const coeffValues = [];
       const chordValues = [];
@@ -560,7 +540,6 @@ function PostProcessing() {
 
       Object.values(sections).forEach((section) => {
         if (section.sectionHeader) {
-          // Extract YAVE/YTIP from sectionHeader string
           const match = section.sectionHeader.match(/YAVE\/YTIP=\s*([0-9.+-eE]+)/);
           if (match) {
             const yaveYtip = parseFloat(match[1]);
@@ -575,7 +554,6 @@ function PostProcessing() {
         }
       });
 
-      // Calculate mean chord for normalization
       const meanChord = chordValues.length > 0
         ? chordValues.reduce((a, b) => a + b, 0) / chordValues.length
         : 1;
@@ -597,7 +575,6 @@ function PostProcessing() {
         }
       });
 
-      // Remove undefined values and sort by yaveYtip
       const validIndices = yaveYtipValues
         .map((val, idx) => ({ val, idx }))
         .filter(obj => obj.val !== undefined && coeffValues[obj.idx] !== undefined)
@@ -611,36 +588,27 @@ function PostProcessing() {
 
       let plotDataArr = [];
       if (selectedSpanwiseCoeff === 'Load') {
-        // MATLAB-like logic for extrapolation and ideal ellipse
-
-        // clcb = sortedCoeff
         const clcb = sortedCoeff;
-        // Find ab (ellipse radius) so curve passes through last point
         const lastYaveYtip = sortedYaveYtip[sortedYaveYtip.length - 1];
         const lastClcb = clcb[clcb.length - 1];
         const ab = Math.sqrt((lastClcb ** 2) / (1 - lastYaveYtip ** 2));
-        // Extrapolate from lastYaveYtip to 1
         const xb = [];
         const yb = [];
         for (let x = lastYaveYtip; x <= 1; x += 0.001) {
           xb.push(x);
           yb.push(Math.sqrt(ab ** 2 * (1 - (x ** 2) / 1 ** 2)));
         }
-        // Concatenate and sort extrapolated arrays
         const yave2 = [...sortedYaveYtip, ...xb];
         const y2 = [...clcb, ...yb];
-        // Sort combined arrays by yave2
         const combined = yave2.map((y, i) => ({ y, val: y2[i] }));
         combined.sort((a, b) => a.y - b.y);
         const finalYave = combined.map(obj => obj.y);
         const finalY = combined.map(obj => obj.val);
 
-        // Area calculation for ideal ellipse
         const a = 1;
         const area = polyarea(finalYave, finalY) + 0.5 * (a * finalY[0] + finalY[finalY.length - 1] * a);
         const b = 4 * area / (Math.PI * a);
 
-        // Ideal ellipse
         const xIdeal = [];
         const yIdeal = [];
         for (let x = 0; x <= a; x += 0.001) {
@@ -701,8 +669,6 @@ function PostProcessing() {
     }
   }, [selectedLevel, selectedSpanwiseCoeff, parsedCpData, showSpanwiseDistribution]);
 
-
-
   useEffect(() => {
     generateSpanwisePlotData();
   }, [generateSpanwisePlotData]);
@@ -745,84 +711,46 @@ function PostProcessing() {
     };
   }, [isResizing, handleMouseMove, handleMouseUp]);
 
-  // --- Import Folder Handler ---
-  const handleImportFolder = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.webkitdirectory = true;
-    input.multiple = true;
-    input.onchange = (event) => {
-      const files = Array.from(event.target.files);
-      if (files.length > 0) {
-        const folderStructure = processFolderFiles(files);
-        setSimulationData(folderStructure); // Store in context
-      }
-    };
-    input.click();
-  };
-
-  // --- Navigation Handlers ---
-  const handleNavigateToProWim = () => {
-    navigate('/post-processing/prowim');
-  };
-
-  const handleContourPlotClick = () => {
-    if (!parsedCpData || !selectedLevel) {
-      alert('Please select CP file and choose a level first.');
-      return;
-    }
-    // No need to pass simulationFolder in state, context will be used
-    navigate('/post-processing/contour-plot');
-  };
-
-  const handleBoundaryLayerClick = () => {
-    navigate('/post-processing/boundary-layer');
-  };
-
-  // --- Folder Processing ---
-  const processFolderFiles = (fileList) => {
-    const files = fileList.map(file => ({
-      name: file.name,
-      path: file.webkitRelativePath,
-      size: file.size,
-      modified: file.lastModified,
-      isDirectory: false,
-      file: file
-    }));
-    const sortedFiles = sortFilesByType(files);
-    const folderName = files[0]?.path.split('/')[0] || 'Imported Folder';
-    return {
-      simName: folderName,
-      folderPath: folderName,
-      files: sortedFiles
-    };
-  };
-
-  const sortFilesByType = (files) => {
-    const fileTypes = {
-      dat: [],
-      cp: [],
-      forces: [],
-      geo: [],
-      map: [],
-      txt: [],
-      log: [],
-      csv: [],
-      tail: [],
-      other: []
-    };
-    files.forEach(file => {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'other';
-      if (fileTypes[ext]) {
-        fileTypes[ext].push(file);
-      } else {
-        fileTypes.other.push(file);
-      }
+  // --- Remove VFP Handler ---
+  const handleRemoveVfp = () => {
+    setVfpFile(null);
+    setVfpMeta(null);
+    setSimulationData(null);
+    setParsedCpData(null);
+    setParsedDatData(null);
+    setParsedForcesData(null);
+    setSelectedFiles({ dat: null, cp: null, forces: null });
+    setSelectedWingFlowFile('');
+    setSelectedTailFlowFile('');
+    setWingResultFiles({});
+    setTailResultFiles({});
+    setLevels([]);
+    setSections([]);
+    setSelectedLevel('');
+    setSelectedSection('');
+    setPlotData1(null);
+    setPlotData2(null);
+    setMeshData(null);
+    setShowMesh(false);
+    setShowSpanwiseDistribution(false);
+    setSelectedSpanwiseCoeff('CL');
+    setSpanwiseData(null);
+    setIsTextMode(false);
+    setOpenedTextFiles([]);
+    setActiveTextTab(null);
+    setIsLoadingCP(false);
+    setIsLoadingForces(false);
+    setIsLoadingDAT(false);
+    setCoefficients({
+      CL: 0.000000,
+      CD: 0.000000,
+      CM: -0.000000
     });
-    Object.keys(fileTypes).forEach(type => {
-      fileTypes[type].sort((a, b) => a.name.localeCompare(b.name));
+    setDragBreakdown({
+      cdInduced: 0.000,
+      cdViscous: 0.000,
+      cdWave: 0.000
     });
-    return fileTypes;
   };
 
   // --- Mesh Button Handler ---
@@ -931,8 +859,6 @@ function PostProcessing() {
     });
   }, [parsedCpData, selectedLevel]);
 
-
-
   // --- Spanwise Distribution Button Handler ---
   const handleSpanwiseDistributionClick = () => {
     if (!parsedCpData || !selectedLevel) {
@@ -947,47 +873,6 @@ function PostProcessing() {
       setShowMesh(false);
       setMeshData(null);
     }
-  };
-
-  // --- Remove Folder Handler ---
-  const handleRemoveFolder = () => {
-    setSimulationData(null);
-    setSelectedFiles({
-      dat: null,
-      cp: null,
-      forces: null
-    });
-    setParsedDatData(null);
-    setParsedCpData(null);
-    setParsedForcesData(null);
-    setLevels([]);
-    setSections([]);
-    setSelectedLevel('');
-    setSelectedPlotType('Mach');
-    setSelectedSection('');
-    setPlotData1(null);
-    setPlotData2(null);
-    setMeshData(null);
-    setShowMesh(false);
-    setShowSpanwiseDistribution(false);
-    setSelectedSpanwiseCoeff('CL');
-    setSpanwiseData(null);
-    setIsTextMode(false);
-    setOpenedTextFiles([]);
-    setActiveTextTab(null);
-    setIsLoadingCP(false);
-    setIsLoadingForces(false);
-    setIsLoadingDAT(false);
-    setCoefficients({
-      CL: 0.000000,
-      CD: 0.000000,
-      CM: -0.000000
-    });
-    setDragBreakdown({
-      cdInduced: 0.000,
-      cdViscous: 0.000,
-      cdWave: 0.000
-    });
   };
 
   // --- Generate 2D Plot Data (Plot 1: CP/Mach vs X/C) ---
@@ -1042,7 +927,6 @@ function PostProcessing() {
       }
     ];
 
-    // Add Mach = 1 horizontal line if Mach plot
     if (selectedPlotType === 'Mach') {
       plot1Data.push({
         x: [Math.min(...xValues), Math.max(...xValues)],
@@ -1054,13 +938,11 @@ function PostProcessing() {
       });
     }
 
-    // Cp plot: sweep and Cp* calculation, polynomial fit
     if (selectedPlotType === 'Cp') {
       let mach = section.coefficients?.M || level.coefficients?.M || 1.0;
       const gamma = 1.4;
       const cps = 2 / (gamma * mach ** 2) * (((2 + 0.4 * mach ** 2) / 2.4) ** (gamma / 0.4) - 1);
 
-      // Gather geometry for all sections in the selected level
       const allSections = Object.values(level.sections)
         .filter(sec => sec.coefficients && sec.coefficients.YAVE !== undefined && Array.isArray(sec['XPHYS']) && Array.isArray(sec['ZPHYS']))
         .sort((a, b) => a.coefficients.YAVE - b.coefficients.YAVE);
@@ -1075,13 +957,11 @@ function PostProcessing() {
         const XPHYS = sec['XPHYS'];
         const YAVE = sec.coefficients.YAVE;
 
-        // Leading and trailing edge X positions
         const LE_X = Math.min(...XPHYS);
         const TE_X = Math.max(...XPHYS);
 
         YAVE_arr.push(YAVE);
 
-        // Sweep calculation using adjacent section
         let LE_S = 0, TE_S = 0, ME_S = 0;
         if (idx < allSections.length - 1) {
           const nextSec = allSections[idx + 1];
@@ -1097,7 +977,6 @@ function PostProcessing() {
         }
         ME_S = (LE_S + TE_S) / 2;
 
-        // Sweep factors
         const F_LE = ((1 + 0.5 * 0.4 * mach ** 2 * Math.cos(LE_S * Math.PI / 180) ** 2) /
           (1 + 0.5 * 0.4 * mach ** 2 * Math.cos(ME_S * Math.PI / 180) ** 2)) ** (gamma / 0.4);
         const F_TE = ((1 + 0.5 * 0.4 * mach ** 2 * Math.cos(TE_S * Math.PI / 180) ** 2) /
@@ -1112,7 +991,6 @@ function PostProcessing() {
         CPs_TE_arr.push(CPs_TE);
       }
 
-      // Prepare fit data: [x, y] pairs for all sections and chord positions
       const fitData = [];
       for (let i = 0; i < YAVE_arr.length; i++) {
         fitData.push([0, CPs_LE_arr[i]]);
@@ -1120,26 +998,10 @@ function PostProcessing() {
         fitData.push([1, CPs_TE_arr[i]]);
       }
 
-      // Polynomial fit (quadratic)
       const result = regression.polynomial(fitData, { order: 2 });
       const fitLineX = [0, 0.25, 0.5, 0.75, 1];
       const fitLineY = fitLineX.map(x => result.predict(x)[1]);
 
-      // // Plot Cp* points for selected section
-      // const selectedSecIdx = allSections.findIndex(sec => sec === section);
-      // if (selectedSecIdx !== -1) {
-      //   plot1Data.push({
-      //     x: [0, 0.5, 1],
-      //     y: [CPs_LE_arr[selectedSecIdx], CPs_MC_arr[selectedSecIdx], CPs_TE_arr[selectedSecIdx]],
-      //     type: 'scatter',
-      //     mode: 'markers+lines',
-      //     line: { color: 'red', dash: 'dot', width: 2 },
-      //     marker: { color: 'red', size: 8 },
-      //     name: 'Cp* (Selected Section)'
-      //   });
-      // }
-
-      // Plot fit line
       plot1Data.push({
         x: fitLineX,
         y: fitLineY,
@@ -1149,7 +1011,6 @@ function PostProcessing() {
         name: 'Cp*'
       });
     }
-
 
     const sectionMatch = selectedSection.match(/section(\d+)/);
     let sectionNumber = sectionMatch ? parseInt(sectionMatch[1]) : '';
@@ -1180,10 +1041,6 @@ function PostProcessing() {
       margin: { l: 60, r: 40, t: 60, b: 60 },
       showlegend: true,
       legend: {
-        // x: 0.02,
-        // y: 0.98,
-        // xanchor: 'left',
-        // yanchor: 'top',
         bgcolor: 'rgba(255,255,255,0.8)',
         bordercolor: 'rgba(0,0,0,0.2)',
         borderwidth: 1,
@@ -1269,7 +1126,234 @@ function PostProcessing() {
     });
   };
 
+  const handleContourPlotClick = () => {
+    if (!parsedCpData || !selectedLevel) {
+      alert('Please select CP file and choose a level first.');
+      return;
+    }
+    // No need to pass simulationFolder in state, context will be used
+    navigate('/post-processing/contour-plot');
+  };
 
+  const handleNavigateToProWim = () => {
+    const polarsPayload = polars || simulationData?.polars || extractPolars(vfpMeta) || null;
+    if (!polarsPayload) {
+      setPolars(null);
+      setPolarsSource('missing');
+      setSimulationData(prev => ({ ...(prev || {}), polars: null, polarsSource: 'missing' }));
+    }
+    navigate('/post-processing/prowim', { state: { polars: polarsPayload } });
+  };
+
+
+  // --- File Explorer Render ---
+  const renderFileExplorer = () => {
+    if (!vfpFile) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+          <div className="text-gray-400 mb-4">
+            <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <p className="text-gray-600 mb-4">No .vfp file loaded</p>
+          <label className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 cursor-pointer">
+            Import .vfp File
+            <input type="file" accept=".vfp,application/json" className="hidden" onChange={handleVfpFileUpload} />
+          </label>
+
+
+        </div>
+      );
+    }
+    if (!vfpMeta) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+          <p className="text-gray-600 mb-4">Loading .vfp metadata...</p>
+        </div>
+      );
+    }
+    return (
+      <div className="h-full flex flex-col">
+        <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">{vfpFile.name}</h3>
+          <div className="mb-3 flex items-center justify-between">
+
+          </div>
+          <div className="space-y-1">
+            <div className={`text-xs px-2 py-1 rounded-md font-medium ${selectedFiles.dat ? 'bg-slate-100 text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
+              DAT: {isLoadingDAT ? '⏳ Loading...' : selectedFiles.dat ? '✓ Loaded' : '○ Not loaded'}
+            </div>
+            <div className={`text-xs px-2 py-1 rounded-md font-medium ${selectedFiles.cp ? 'bg-slate-100 text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
+              CP: {isLoadingCP ? '⏳ Loading...' : selectedFiles.cp ? '✓ Loaded' : '○ Not loaded'}
+            </div>
+            <div className={`text-xs px-2 py-1 rounded-md font-medium ${selectedFiles.forces ? 'bg-slate-100 text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
+              FORCES: {isLoadingForces ? '⏳ Loading...' : selectedFiles.forces ? '✓ Loaded' : '○ Not loaded'}
+            </div>
+          </div>
+        </div>
+        {/* Flow File Dropdowns */}
+        <div className="p-4 border-b border-gray-200 bg-gray-50 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Wing Flow File</label>
+            <select
+              className="w-full px-3 py-2 border border-blue-300 rounded-lg"
+              value={selectedWingFlowFile}
+              onChange={e => {
+                setSelectedWingFlowFile(e.target.value);
+                setSelectedTailFlowFile('');
+                setWingResultFiles({});
+                setTailResultFiles({});
+                setParsedCpData(null);
+                setParsedDatData(null);
+                setParsedForcesData(null);
+                setSelectedFiles({ dat: null, cp: null, forces: null });
+                setLevels([]);
+                setSections([]);
+                setSelectedLevel('');
+                setSelectedSection('');
+                setPlotData1(null);
+                setPlotData2(null);
+                setMeshData(null);
+                setShowMesh(false);
+                setShowSpanwiseDistribution(false);
+                setSelectedSpanwiseCoeff('CL');
+                setSpanwiseData(null);
+              }}
+            >
+              <option value="">Select Wing Flow File</option>
+              {wingFlowFiles.map(flow => (
+                <option key={flow.key} value={flow.key}>{flow.key}</option>
+              ))}
+            </select>
+          </div>
+          {tailFlowFiles.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Tail Flow File</label>
+              <select
+                className="w-full px-3 py-2 border border-blue-300 rounded-lg"
+                value={selectedTailFlowFile}
+                onChange={e => {
+                  setSelectedTailFlowFile(e.target.value);
+                  setParsedCpData(null);
+                  setParsedDatData(null);
+                  setParsedForcesData(null);
+                  setSelectedFiles({ dat: null, cp: null, forces: null });
+                  setLevels([]);
+                  setSections([]);
+                  setSelectedLevel('');
+                  setSelectedSection('');
+                  setPlotData1(null);
+                  setPlotData2(null);
+                  setMeshData(null);
+                  setShowMesh(false);
+                  setShowSpanwiseDistribution(false);
+                  setSelectedSpanwiseCoeff('CL');
+                  setSpanwiseData(null);
+                }}
+              >
+                <option value="">Select Tail Flow File</option>
+                {tailFlowFiles.map(flow => (
+                  <option key={flow.key} value={flow.key}>{flow.key}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        {/* Result Files */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {selectedWingFlowFile && (
+            <div>
+              <h4 className="font-semibold text-blue-700 mb-2">Wing Result Files</h4>
+              {Object.entries(wingResultFiles).map(([fileType, fileList]) => {
+                if (!Array.isArray(fileList) || fileList.length === 0) return null;
+                return (
+                  <div key={fileType} className="mb-2">
+                    <div className="flex items-center mb-1">
+                      <span className="text-lg mr-2">{getFileTypeIcon(fileType)}</span>
+                      <span className="font-medium text-gray-800">{fileType.toUpperCase()} Files ({fileList.length})</span>
+                    </div>
+                    <div className="space-y-1">
+                      {fileList.map((file, index) => {
+                        const isLoading = (fileType === 'cp' && isLoadingCP) ||
+                          (fileType === 'forces' && isLoadingForces) ||
+                          (fileType === 'dat' && isLoadingDAT);
+                        const isSelected = isFileSelected(file) && !isLoading;
+                        return (
+                          <div
+                            key={`${file.name}-${index}`}
+                            className={`flex items-center p-2 rounded-lg transition-all duration-200 ${isSelected
+                              ? 'bg-slate-100 border border-slate-300 shadow-sm'
+                              : 'hover:bg-gray-50 border border-transparent'
+                              } ${isLoading ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
+                            onClick={() => {
+                              if (!isLoading && ['dat', 'cp', 'forces'].includes(fileType)) {
+                                requestParsedData('wingConfig', selectedWingFlowFile, fileType);
+                              }
+                            }}
+                            title={file.name}
+                          >
+                            <span className="text-sm mr-2">{isLoading ? '⏳' : getFileIcon(file.name)}</span>
+                            <span className="flex-1 text-sm truncate">{file.name}</span>
+                            {isSelected && <span className="text-slate-600 text-sm font-medium">✓</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {selectedTailFlowFile && (
+            <div>
+              <h4 className="font-semibold text-blue-700 mb-2">Tail Result Files</h4>
+              {Object.entries(tailResultFiles).map(([fileType, fileList]) => {
+                if (!Array.isArray(fileList) || fileList.length === 0) return null;
+                return (
+                  <div key={fileType} className="mb-2">
+                    <div className="flex items-center mb-1">
+                      <span className="text-lg mr-2">{getFileTypeIcon(fileType)}</span>
+                      <span className="font-medium text-gray-800">{fileType.toUpperCase()} Files ({fileList.length})</span>
+                    </div>
+                    <div className="space-y-1">
+                      {fileList.map((file, index) => {
+                        const isLoading = (fileType === 'cp' && isLoadingCP) ||
+                          (fileType === 'forces' && isLoadingForces) ||
+                          (fileType === 'dat' && isLoadingDAT);
+                        const isSelected = isFileSelected(file) && !isLoading;
+                        return (
+                          <div
+                            key={`${file.name}-${index}`}
+                            className={`flex items-center p-2 rounded-lg transition-all duration-200 ${isSelected
+                              ? 'bg-slate-100 border border-slate-300 shadow-sm'
+                              : 'hover:bg-gray-50 border border-transparent'
+                              } ${isLoading ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
+                            onClick={() => {
+                              if (!isLoading && ['dat', 'cp', 'forces'].includes(fileType)) {
+                                requestParsedData('tailConfig', selectedTailFlowFile, fileType);
+                              }
+                            }}
+                            title={file.name}
+                          >
+                            <span className="text-sm mr-2">{isLoading ? '⏳' : getFileIcon(file.name)}</span>
+                            <span className="flex-1 text-sm truncate">{file.name}</span>
+                            {isSelected && <span className="text-slate-600 text-sm font-medium">✓</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // --- File Type Icons ---
   const getFileTypeIcon = (fileType) => {
     const icons = {
       dat: '📊',
@@ -1298,7 +1382,7 @@ function PostProcessing() {
     }
   };
 
-
+  // --- Aspect Ratio/Epsilon ---
   function computeAspectRatio(parsedCpData, selectedLevel) {
     if (!parsedCpData || !parsedCpData.levels || !selectedLevel) return null;
     const level = parsedCpData.levels[selectedLevel];
@@ -1306,7 +1390,6 @@ function PostProcessing() {
     const sections = Object.values(level.sections);
     if (sections.length < 2) return null;
 
-    // Extract YAVE and CHORD for each section
     const yaves = [];
     const chords = [];
     sections.forEach(section => {
@@ -1320,23 +1403,19 @@ function PostProcessing() {
 
     if (yaves.length < 2 || chords.length < 2) return null;
 
-    // Sort by YAVE
     const combined = yaves.map((y, i) => ({ y, c: chords[i] }));
     combined.sort((a, b) => a.y - b.y);
     const y = combined.map(obj => obj.y);
     const c = combined.map(obj => obj.c);
 
-    // Area calculation
     let wingArea = 0;
     const n = y.length;
 
     if (n % 2 === 1 || n < 15) {
-      // Trapezoidal rule for odd number of sections or less than 12
       for (let i = 1; i < n; i++) {
         wingArea += (y[i] - y[i - 1]) * (c[i] + c[i - 1]) / 2;
       }
     } else {
-      // Simpson's rule for even number of sections (assumes y are equally spaced)
       const h = (y[n - 1] - y[0]) / (n - 1);
       let sum = c[0] + c[n - 1];
       for (let i = 1; i < n - 1; i++) {
@@ -1344,13 +1423,9 @@ function PostProcessing() {
       }
       wingArea = (h / 3) * sum;
     }
-    wingArea *= 2; // Both sides of the wing
+    wingArea *= 2;
 
     const span = 2 * Math.abs(y[y.length - 1]);
-
-    console.log('Computed Wing Area:', wingArea);
-    console.log('Computed Wing Span:', span);
-    console.log('Computed Aspect Ratio:', (span * span) / wingArea);
     if (wingArea === 0) return null;
     return (span * span / wingArea);
   }
@@ -1362,284 +1437,12 @@ function PostProcessing() {
   }
 
   useEffect(() => {
-    // Only compute if all dependencies are available
     if (coefficients.CL && parsedCpData && selectedLevel) {
       const AR = computeAspectRatio(parsedCpData, selectedLevel);
       const eps = computeEpsilon(coefficients.CL, AR);
       setEpsilon(eps);
     }
   }, [coefficients.CL, parsedCpData, selectedLevel]);
-
-
-  // --- Render File Explorer ---
-  const renderFileExplorer = () => {
-    if (!simulationData) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-          <div className="text-gray-400 mb-4">
-            <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          </div>
-          <p className="text-gray-600 mb-4">No simulation data loaded</p>
-          <button
-            onClick={handleImportFolder}
-            className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
-          >
-            Import Folder
-          </button>
-        </div>
-      );
-    }
-    const files = simulationData.files || {};
-    const hasFiles = Object.keys(files).some(fileType =>
-      Array.isArray(files[fileType]) && files[fileType].length > 0
-    );
-    if (!hasFiles) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">{simulationData.simName}</h3>
-          <p className="text-gray-600 mb-4">No files found in the simulation folder</p>
-          <button
-            onClick={handleImportFolder}
-            className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
-          >
-            Import Different Folder
-          </button>
-        </div>
-      );
-    }
-    return (
-      <div className="h-full flex flex-col">
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">{simulationData.simName}</h3>
-          <div className="mb-3 flex items-center justify-between">
-            <span className="font-semibold text-blue-700">Text Mode</span>
-            <button
-              className={`ml-2 px-3 py-1 rounded-lg text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 ${isTextMode ? 'bg-blue-600 text-white' : 'bg-white border border-blue-300 text-blue-700 hover:bg-blue-50'}`}
-              onClick={() => setIsTextMode(!isTextMode)}
-            >
-              {isTextMode ? 'On' : 'Off'}
-            </button>
-          </div>
-          <div className="space-y-1">
-            <div className={`text-xs px-2 py-1 rounded-md font-medium ${selectedFiles.dat ? 'bg-slate-100 text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
-              DAT: {isLoadingDAT ? '⏳ Loading...' : selectedFiles.dat ? '✓ Loaded' : '○ Not loaded'}
-            </div>
-            <div className={`text-xs px-2 py-1 rounded-md font-medium ${selectedFiles.cp ? 'bg-slate-100 text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
-              CP: {isLoadingCP ? '⏳ Loading...' : selectedFiles.cp ? '✓ Loaded' : '○ Not loaded'}
-            </div>
-            <div className={`text-xs px-2 py-1 rounded-md font-medium ${selectedFiles.forces ? 'bg-slate-100 text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
-              FORCES: {isLoadingForces ? '⏳ Loading...' : selectedFiles.forces ? '✓ Loaded' : '○ Not loaded'}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4">
-          {Object.entries(files).map(([fileType, fileList]) => {
-            if (!Array.isArray(fileList) || fileList.length === 0) return null;
-            return (
-              <div key={fileType} className="mb-4">
-                <div className="flex items-center mb-2">
-                  <span className="text-lg mr-2">{getFileTypeIcon(fileType)}</span>
-                  <span className="font-medium text-gray-800">{fileType.toUpperCase()} Files ({fileList.length})</span>
-                </div>
-                <div className="space-y-1">
-                  {fileList.map((file, index) => {
-                    const isLoading = (fileType === 'cp' && isLoadingCP) ||
-                      (fileType === 'forces' && isLoadingForces) ||
-                      (fileType === 'dat' && isLoadingDAT);
-                    const isTailSelected = fileType === 'tail' && selectedTailFile && selectedTailFile.path === file.path;
-                    const isSelected = isFileSelected(file) && !isLoading && fileType !== 'tail';
-                    return (
-                      <div
-                        key={index}
-                        className={`flex items-center p-2 rounded-lg cursor-pointer transition-all duration-200 ${isSelected || isTailSelected
-                          ? 'bg-slate-100 border border-slate-300 shadow-sm'
-                          : ['dat', 'cp', 'forces', 'tail'].includes(fileType)
-                            ? 'hover:bg-gray-50 border border-transparent'
-                            : 'border border-transparent text-gray-500 cursor-default'
-                          } ${isLoading ? 'opacity-60 cursor-wait' : ''}`}
-                        onClick={() => {
-                          if (isTextMode) {
-                            handleOpenTextFile(file);
-                          } else if (!isLoading && ['dat', 'cp', 'forces'].includes(fileType)) {
-                            handleFileSelect(file);
-                          } else if (fileType === 'tail') {
-                            setSelectedTailFile(file);
-                          }
-                        }}
-                        title={file.name}
-                      >
-                        <span className="text-sm mr-2">
-                          {isLoading ? '⏳' : getFileIcon(file.name)}
-                        </span>
-                        <span className="flex-1 text-sm truncate">{file.name}</span>
-                        {/* Show marker for selected .tail */}
-                        {isTailSelected && <span className="text-blue-600 text-sm font-medium ml-2">✓</span>}
-                        {/* Show marker for selected .dat, .cp, .forces */}
-                        {isSelected && <span className="text-slate-600 text-sm font-medium">✓</span>}
-                        {/* Clear button for selected .dat, .cp, .forces */}
-                        {isSelected && (
-                          <button
-                            className="ml-2 text-xs text-gray-400 hover:text-red-500"
-                            title="Clear selection"
-                            onClick={e => {
-                              e.stopPropagation();
-                              if (fileType === 'dat') {
-                                setSelectedFiles(prev => {
-                                  let newDat = Array.isArray(prev.dat)
-                                    ? prev.dat.filter(f => f.path !== file.path)
-                                    : null;
-                                  if (Array.isArray(newDat) && newDat.length === 0) newDat = null;
-                                  return { ...prev, dat: newDat };
-                                });
-                                setParsedDatData(null);
-                                setIsLoadingDAT(false);
-                              } else if (fileType === 'cp') {
-                                setSelectedFiles(prev => ({ ...prev, cp: null }));
-                                setParsedCpData(null);
-                                setSections([]);
-                                setSelectedLevel('');
-                                setSelectedSection('');
-                                setIsLoadingCP(false); // <-- Add this line
-                              } else if (fileType === 'forces') {
-                                setSelectedFiles(prev => ({ ...prev, forces: null }));
-                                setParsedForcesData(null);
-                                setIsLoadingForces(false); // <-- Add this line
-                              }
-                            }}
-                          >✕</button>
-                        )}                     </div>
-                    );
-                  })}
-
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-
-  const [editedText, setEditedText] = useState({});
-  const [isEditing, setIsEditing] = useState(false);
-
-  const handleTextFileChange = (path, newContent) => {
-    setEditedText(prev => ({
-      ...prev,
-      [path]: newContent
-    }));
-  };
-
-  const handleSaveTextFile = (fileObj) => {
-    // Save changes to openedTextFiles in memory
-    setOpenedTextFiles(prev =>
-      prev.map(f =>
-        f.file.path === fileObj.file.path
-          ? { ...f, content: editedText[fileObj.file.path] }
-          : f
-      )
-    );
-    setIsEditing(false);
-    alert('File changes saved in memory for this session.');
-  };
-
-  const renderTextFileViewer = () => {
-    if (openedTextFiles.length === 0) {
-      return (
-        <div className="h-full flex items-center justify-center bg-blue-50">
-          <span className="text-gray-500">No file selected. Click a file in explorer to view.</span>
-        </div>
-      );
-    }
-    const activeFileObj = openedTextFiles.find(f => f.file.path === activeTextTab);
-    const rawContent = isEditing
-      ? editedText[activeTextTab] ?? activeFileObj?.content ?? ''
-      : activeFileObj?.content ?? '';
-
-    // For visualisation: show spaces as · and tabs as →
-    const visibleContent = rawContent
-      .replace(/ /g, '·')
-      .replace(/\t/g, '→   ');
-
-    return (
-      <div className="h-full flex flex-col items-center bg-white">
-        {/* Tabs */}
-        <div className="flex border-b border-blue-200 bg-blue-50 w-full max-w-3xl">
-          {openedTextFiles.map(({ file }, idx) => (
-            <div
-              key={file.path}
-              className={`px-4 py-2 cursor-pointer border-r border-blue-100 ${activeTextTab === file.path ? 'bg-white font-semibold text-blue-700' : 'text-gray-700 hover:bg-blue-100'}`}
-              onClick={() => { setActiveTextTab(file.path); setIsEditing(true); }}
-            >
-              {file.name}
-              <button
-                className="ml-2 text-xs text-gray-400 hover:text-red-500"
-                onClick={e => {
-                  e.stopPropagation();
-                  setOpenedTextFiles(prev => prev.filter(f => f.file.path !== file.path));
-                  if (activeTextTab === file.path) {
-                    // Switch to another tab or none
-                    const others = openedTextFiles.filter(f => f.file.path !== file.path);
-                    setActiveTextTab(others[0]?.file.path || null);
-                  }
-                }}
-                title="Close"
-              >✕</button>
-            </div>
-          ))}
-        </div>
-        {/* Editable Text Area */}
-        <div className="flex-1 flex flex-col p-4 bg-white font-mono text-sm w-full max-w-3xl">
-          {isEditing ? (
-            <>
-              <textarea
-                className="flex-1 w-full border border-blue-200 rounded p-2 font-mono text-sm resize-none"
-                value={editedText[activeTextTab] ?? activeFileObj?.content ?? ''}
-                onChange={e => handleTextFileChange(activeTextTab, e.target.value)}
-                style={{ minHeight: 0, height: '60vh' }}
-              />
-              <div className="mt-2 flex gap-2 justify-end">
-                <button
-                  className="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  onClick={() => handleSaveTextFile(activeFileObj)}
-                >
-                  Save
-                </button>
-                <button
-                  className="px-4 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                  onClick={() => setIsEditing(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <pre
-                className="flex-1 w-full whitespace-pre-wrap font-mono text-sm bg-white"
-                style={{ minHeight: 0, height: '60vh' }}
-              >
-                {visibleContent}
-              </pre>
-              <div className="mt-2 flex justify-end">
-                <button
-                  className="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  onClick={() => setIsEditing(true)}
-                >
-                  Edit
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
-
 
   // --- MAIN RETURN ---
   return (
@@ -1659,30 +1462,27 @@ function PostProcessing() {
           <h1 className="text-xl font-semibold text-gray-800">Post-Processing Module</h1>
         </div>
         <div className="flex items-center space-x-3">
-          <button
-            onClick={handleImportFolder}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            Import Folder
-          </button>
+          <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer">
+            Import .vfp File
+            <input type="file" accept=".vfp,application/json" className="hidden" onChange={handleVfpFileUpload} />
+          </label>
+          <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer">
+            Contour Plots
+            <button className="hidden" onClick={handleContourPlotClick} />
+          </label>
           <button
             onClick={handleNavigateToProWim}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            title="Open ProWiM with polars"
           >
             ProWiM
           </button>
           <button
-            onClick={handleContourPlotClick}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            Contour Plots
-          </button>
-          <button
-            onClick={handleRemoveFolder}
+            onClick={handleRemoveVfp}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-            title="Close Folder"
+            title="Close VFP"
           >
-            Close Folder
+            Close VFP
           </button>
           <button
             onClick={() => { setSelectedFiles({ dat: null, cp: null, forces: null }); navigate('/') }}
@@ -1692,7 +1492,6 @@ function PostProcessing() {
           </button>
         </div>
       </div>
-
       {/* Main layout: File Explorer | Main Plot | Right Sidebar */}
       <div className="flex flex-1 overflow-hidden h-full w-full">
         {/* File Explorer Sidebar */}
@@ -1705,7 +1504,6 @@ function PostProcessing() {
           }}
         >
           {renderFileExplorer()}
-          {/* Resize Handle */}
           {isExplorerOpen && (
             <div
               ref={resizeRef}
@@ -1715,7 +1513,6 @@ function PostProcessing() {
             />
           )}
         </div>
-
         {/* Main Content Area */}
         <div
           className="flex-1 flex flex-col relative h-full min-w-0"
@@ -1726,9 +1523,7 @@ function PostProcessing() {
             overflow: 'hidden',
           }}
         >
-          {isTextMode ? (
-            renderTextFileViewer()
-          ) : showMesh && meshData ? (
+          {showMesh && meshData ? (
             <div className="flex-1 bg-white">
               <Plot
                 data={meshData.data}
@@ -1807,7 +1602,6 @@ function PostProcessing() {
             </div>
           )}
         </div>
-
         {/* Right Sidebar */}
         <div
           className="bg-white border-l border-blue-200 flex flex-col overflow-y-auto"
@@ -1831,12 +1625,6 @@ function PostProcessing() {
                 onClick={handleMeshClick}
               >
                 {showMesh ? 'Hide Mesh' : 'Show Mesh'}
-              </button>
-              <button
-                className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                onClick={handleBoundaryLayerClick}
-              >
-                Boundary Layer Data
               </button>
               <button
                 className={`w-full px-4 py-2.5 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${showSpanwiseDistribution
@@ -1958,81 +1746,18 @@ function PostProcessing() {
               </div>
             </div>
           </div>
-
-          {/* Tail Plane Parameters Section */}
+          {/* Epsilon */}
           <div className="p-4">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Tail Plane Parameters</h3>
-            <div className="space-y-3 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Upload Tail Geometry (.GEO)</label>
-                <div className="relative w-full">
-                  <input
-                    type="file"
-                    accept=".geo"
-                    id="tail-geo-upload"
-                    className="hidden"
-                    onChange={e => {
-                      if (e.target.files && e.target.files[0]) {
-                        setSelectedtailGEOFile({ ...e.target.files[0], file: e.target.files[0], name: e.target.files[0].name });
-                        setTimeout(() => {
-                          if (selectedTailFile && selectedFiles.cp) {
-                            handleTailFileSelect(selectedTailFile);
-                          }
-                        }, 0);
-                      }
-                    }}
-                    disabled={isLoadingTail}
-                  />
-                  <label
-                    htmlFor="tail-geo-upload"
-                    className={`flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 cursor-pointer transition-all duration-200 font-medium border border-blue-700
-                      ${isLoadingTail ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    style={{ minWidth: '180px' }}
-                  >
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M4 12l8-8 8 8M12 4v12" />
-                    </svg>
-                    {isLoadingTail ? 'Uploading...' : 'Choose .GEO File'}
-                  </label>
-                </div>
-                {isLoadingTail && <div className="text-blue-600 mt-2 text-xs">Computing tail parameters...</div>}
-              </div>
-              {/* <div className="bg-blue-50 rounded-lg p-3 border border-blue-200"> */}
-                {/* <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Downwash Angle (Epsilon)</span>
-                  <span className="font-mono text-gray-900 text-sm">
-                    {epsilon !== null && !isNaN(epsilon) ? epsilon.toFixed(5) : 'N/A'}
-                  </span>
-                </div> */}
-              {/* </div> */}
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Downwash Angle LLT</span>
-                  <span className="font-mono text-gray-900 text-sm">
-                    {tailPlaneParams?.effective_epsilon_deg !== undefined ? tailPlaneParams.effective_epsilon_deg.toFixed(5) : 'N/A'}
-                  </span>
-                </div>
-              </div>
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Eff. Tail Angle of Attack</span>
-                  <span className="font-mono text-gray-900 text-sm">
-                    {effectiveTailAoADeg !== null && !Number.isNaN(effectiveTailAoADeg) ? effectiveTailAoADeg.toFixed(5) : 'N/A'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Local Mach Number</span>
-                  <span className="font-mono text-gray-900 text-sm">
-                    {tailPlaneParams?.avg_local_mach !== undefined ? tailPlaneParams.avg_local_mach.toFixed(5) : 'N/A'}
-                  </span>
-                </div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Downwash Angle (Epsilon)</h3>
+            <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+              <div className="flex justify-between items-center">
+                <span className="font-medium text-gray-700">Epsilon</span>
+                <span className="font-mono text-gray-900 text-sm">
+                  {epsilon !== null && !isNaN(epsilon) ? epsilon.toFixed(5) : 'N/A'}
+                </span>
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>

@@ -10,6 +10,11 @@ export function SimulationDataProvider({ children }) {
         forces: null
     });
 
+    // Supplemental data passed between modules
+    const [polars, setPolars] = useState(null);
+    const [polarsSource, setPolarsSource] = useState(null);
+    const [aeroCoefficients, setAeroCoefficients] = useState(null);
+
     // Configuration states
     const [selectedLevel, setSelectedLevel] = useState('');
     const [selectedSection, setSelectedSection] = useState('');
@@ -30,6 +35,12 @@ export function SimulationDataProvider({ children }) {
             setSimulationData,
             selectedFiles,
             setSelectedFiles,
+            polars,
+            setPolars,
+            polarsSource,
+            setPolarsSource,
+            aeroCoefficients,
+            setAeroCoefficients,
             selectedLevel,
             setSelectedLevel,
             selectedSection,

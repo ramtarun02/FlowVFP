@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef, useContext } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { io } from "socket.io-client";
+import React, { useState, useEffect, useRef, useContext } from "react";
+import { useNavigate } from "react-router-dom";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -13,9 +12,9 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import FormDataContext from "./FormDataContext";
-
-import { createSocket } from '../utils/socket';
+import { VfpDataContext } from "./vfpDataContext";
+import fetchAPI from "../utils/fetch";
+import { createSocket } from "../utils/socket";
 
 // Register Chart.js components
 ChartJS.register(
@@ -33,7 +32,6 @@ ChartJS.register(
 function generateColorPalette(n) {
   const palette = [];
   for (let i = 0; i < n; i++) {
-    // Use HSL for visually distinct colors
     palette.push(`hsl(${(i * 360) / n}, 70%, 50%)`);
   }
   return palette;
@@ -41,11 +39,12 @@ function generateColorPalette(n) {
 const RUN_COLORS = generateColorPalette(60);
 
 const SimulationRun = () => {
-  const location = useLocation();
   const navigate = useNavigate();
+  const { vfpData } = useContext(VfpDataContext);
   const [messages, setMessages] = useState([]);
   const [socket, setSocket] = useState(null);
   const [newRunStarted, setNewRunStarted] = useState(false);
+  const startEmittedRef = useRef(false);
 
   // residualRuns: an array of runs. Each run is { id, iterations: [], residuals: [], color }
   const [residualRuns, setResidualRuns] = useState([
@@ -58,9 +57,10 @@ const SimulationRun = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [simulationComplete, setSimulationComplete] = useState(false);
-  const { formData } = useContext(FormDataContext);
+  const downloadIntentRef = useRef("download");
   const messageBoxRef = useRef(null);
 
+  // Parse residual data from backend messages
   const parseResidualData = (message) => {
     if (!message) return;
 
@@ -69,7 +69,6 @@ const SimulationRun = () => {
     // Detect "[ALL DONE]" marker only
     const doneMarker = "[all done]";
     if (lower.includes(doneMarker)) {
-      console.log("New simulation run detected after '[ALL DONE]'.");
       setResidualRuns((prevRuns) => {
         const nextIndex = prevRuns.length;
         const nextColor = RUN_COLORS[nextIndex % RUN_COLORS.length];
@@ -82,24 +81,14 @@ const SimulationRun = () => {
         return newRuns;
       });
       setNewRunStarted(true);
-      // Do not return here -- we still may get additional info in same message,
-      // so continue to attempt parsing numbers below.
     }
 
-    // --- NEW: Support multiple formats for residual lines ---
-    // 1. [VFP-BAT] 1 3750-0.0000013
-    // 2. [VFP-BAT] 1 3820 0.0000032
-    // 3. Old format: <number> <iteration> <residual>
-    // Try all patterns
-
-    // Pattern 1: [VFP-BAT] 1 <iteration>-<residual>
+    // Support multiple formats for residual lines
     let match = message.match(/\[VFP-BAT\]\s+\d+\s+(\d+)-(-?[\d.eE+-]+)/i);
     if (!match) {
-      // Pattern 2: [VFP-BAT] 1 <iteration> <residual>
       match = message.match(/\[VFP-BAT\]\s+\d+\s+(\d+)\s+(-?[\d.eE+-]+)/i);
     }
     if (!match) {
-      // Pattern 3: <number> <iteration> <residual>
       match = message.match(/^\s*\d+\s+(\d+)\s+(-?[\d.eE+-]+)\s*$/i);
     }
 
@@ -109,7 +98,6 @@ const SimulationRun = () => {
 
       if (!isNaN(iteration) && !isNaN(residual)) {
         const absResidual = Math.abs(residual);
-        // Always append to the latest run only
         setResidualRuns((prev) => {
           const idx = prev.length - 1;
           const next = prev.map((r, i) =>
@@ -127,7 +115,7 @@ const SimulationRun = () => {
       }
     }
 
-    // Check if simulation is complete (existing logic)
+    // Check if simulation is complete
     if (
       lower.includes("solver complete") ||
       lower.includes("simulation complete") ||
@@ -138,23 +126,31 @@ const SimulationRun = () => {
   };
 
   useEffect(() => {
-    if (!formData) {
+    let newSocket;
+ 
+    const init = async () => {
+    if (!vfpData || !vfpData.formData) {
       console.error("Error: No form data available in SimulationRun component.");
       return;
     }
 
-    const newSocket = createSocket({
-      pingTimeout: 300000,
-      pingInterval: 60000
+
+    // 2) Open socket using shared helper (aligns with utils/socket.js)
+    newSocket = createSocket({
+      timeout: 20000,
     });
 
     newSocket.on("connect", () => {
       console.log("WebSocket connected");
-      const formObject = Object.fromEntries(formData.entries());
-      const simName = formObject.simName;
+      const simName = vfpData.formData.simName;
+      console.log("Emitting start_simulation with simName:", simName);
       setSimulationName(simName);
-      console.log("Stored simulation name:", simName);
-      newSocket.emit("start_simulation", formObject);
+      if (startEmittedRef.current) {
+        console.warn("start_simulation already emitted; skipping duplicate emit");
+        return;
+      }
+      newSocket.emit("start_simulation", { simName, vfpData: vfpData });
+      startEmittedRef.current = true;
     });
 
     newSocket.on("message", (data) => {
@@ -162,25 +158,45 @@ const SimulationRun = () => {
       parseResidualData(data);
     });
 
-    newSocket.on("download_ready", ({ fileData, simName }) => {
+    newSocket.on("download_ready", ({ fileData, simName, fileName }) => {
+      const intent = downloadIntentRef.current || "download";
+      const resolvedName = fileName || `${simName || simulationName || "simulation"}.vfp`;
+
       setIsDownloading(false);
-      if (fileData) {
-        const blob = new Blob([fileData], { type: "application/zip" });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${simName}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+      setIsExporting(false);
+      downloadIntentRef.current = "download";
+
+      if (!fileData) {
+        console.error("download_ready received without fileData");
+        alert("Unable to retrieve simulation file from server.");
+        return;
       }
+
+      if (intent === "vfppost") {
+        try {
+          const blob = new Blob([fileData], { type: "application/json" });
+          const file = new File([blob], resolvedName, { type: "application/json" });
+          navigate("/vfppost", { state: { vfpFile: file, fileName: resolvedName, transferId: Date.now() } });
+        } catch (err) {
+          console.error("Failed to hand off VFP data to VFPPost:", err);
+          alert("Failed to pass simulation file to VFP Post. Please try again.");
+        }
+        return;
+      }
+
+      const blob = new Blob([fileData], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = resolvedName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
     });
 
     newSocket.on("simulation_folder_ready", (folderData) => {
       setIsExporting(false);
-      console.log("Simulation folder data received:", folderData);
-
       if (folderData && folderData.success) {
         navigate('/post-processing', {
           state: {
@@ -208,12 +224,18 @@ const SimulationRun = () => {
     });
 
     setSocket(newSocket);
+    };
+
+    init();
 
     return () => {
-      newSocket.disconnect();
-      console.log("WebSocket cleanup: Disconnected on component unmount");
-    };
-  }, [formData, navigate]);
+      if (newSocket) {
+        newSocket.disconnect();
+        console.log("WebSocket cleanup: Disconnected on component unmount");
+      }
+      startEmittedRef.current = false;
+      };
+  }, [vfpData, navigate]);
 
   useEffect(() => {
     if (messageBoxRef.current) {
@@ -223,31 +245,26 @@ const SimulationRun = () => {
 
   const handleDownload = () => {
     if (!simulationName) {
-      console.error("Error: Simulation name not available.");
       alert("Simulation name not available. Please restart the simulation.");
       return;
     }
-
     if (socket) {
       setIsDownloading(true);
+      downloadIntentRef.current = "download";
       socket.emit("download", { simName: simulationName });
-      console.log("Download request sent via WebSocket");
     }
   };
 
   const handleExportToVFPPost = () => {
     if (!simulationName) {
-      console.error("Error: Simulation name not available.");
       alert("Simulation name not available. Please restart the simulation.");
       return;
     }
-
     if (socket) {
       setIsExporting(true);
-      console.log("Requesting simulation folder via WebSocket for:", simulationName);
-      socket.emit("get_simulation_folder", { simName: simulationName });
+      downloadIntentRef.current = "vfppost";
+      socket.emit("download", { simName: simulationName });
     } else {
-      console.error("Socket connection not available");
       alert('Connection error. Please try again.');
     }
   };
@@ -274,8 +291,8 @@ const SimulationRun = () => {
       pointBackgroundColor: run.color,
       pointBorderColor: "#ffffff",
       pointBorderWidth: 0.8,
-      showLine: run.iterations.length > 1, // Only join points within the same run
-      spanGaps: false, // Do not join across runs
+      showLine: run.iterations.length > 1,
+      spanGaps: false,
       fill: false,
     })),
   };
@@ -589,7 +606,7 @@ const SimulationRun = () => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .min-h-0 {
           min-height: 0;
         }
@@ -610,7 +627,6 @@ const SimulationRun = () => {
       `}</style>
     </div>
   );
-
 };
 
 export default SimulationRun;

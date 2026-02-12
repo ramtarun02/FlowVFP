@@ -45,14 +45,16 @@ function PropellerWingForm() {
   const [csvFiles, setCsvFiles] = useState([]);
   const [selectedCsvFile, setSelectedCsvFile] = useState(null);
   const [polarData, setPolarData] = useState(null);
-  const { simulationData } = useSimulationData();
+  const [polarsFromCase, setPolarsFromCase] = useState(false);
+  const [polarsStatus, setPolarsStatus] = useState('idle');
+  const { simulationData, aeroCoefficients } = useSimulationData();
   const [cd0WithDrag, setCd0WithDrag] = useState([]);
 
   useEffect(() => {
-    if (simulationData) {
+    if (simulationData && !polarsFromCase) {
       scanForCsvFiles(simulationData);
     }
-  }, [simulationData]);
+  }, [simulationData, polarsFromCase]);
 
   const [formData, setFormData] = useState({
     A: "8",
@@ -150,6 +152,35 @@ function PropellerWingForm() {
     </div>
   );
 
+  const renderPolarsBanner = () => {
+    if (polarsFromCase && polarData) {
+      return (
+        <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg shadow-sm">
+          <div className="flex items-center gap-2 text-emerald-800 text-sm font-semibold">
+            <span>✅ Polars loaded from .vfp results</span>
+            <span className="text-xs px-2 py-1 bg-white border border-emerald-200 rounded-full">{polarData.alpha.length} points</span>
+          </div>
+          <p className="text-xs text-emerald-700 mt-1">Alpha, CL, and CD0 were auto-filled. CSV import is optional.</p>
+        </div>
+      );
+    }
+    if (polarsStatus === 'aero' && polarData) {
+      return (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+          Aerodynamic coefficients (CL/CD) from the case were used to prefill CL0/CD0. Adjust ALFAWI as needed.
+        </div>
+      );
+    }
+    if (polarsStatus === 'missing') {
+      return (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+          No polars found in this case. You can still load CSV polars manually if available.
+        </div>
+      );
+    }
+    return null;
+  };
+
   const [arrayInputs, setArrayInputs] = useState({
     ALFAWI: [5],
     CL0: [0.5],
@@ -176,6 +207,77 @@ function PropellerWingForm() {
     });
     setCsvFiles(csvFileList);
   };
+
+  const applyPolarData = React.useCallback((polars) => {
+    if (!polars) return false;
+    const alpha = polars.alpha || [];
+    const cl = polars.cl || [];
+    const cd = polars.cd || [];
+    const valid = Array.isArray(alpha) && Array.isArray(cl) && Array.isArray(cd) && alpha.length && cl.length && cd.length;
+    if (!valid) return false;
+
+    setPolarData({ alpha, cl, cd });
+    setArrayInputs(prev => ({
+      ...prev,
+      ALFAWI: alpha,
+      CL0: cl,
+      CD0: cd
+    }));
+    setFormData(prev => ({
+      ...prev,
+      ALFAWI: alpha.join(', '),
+      CL0: cl.map(v => (Number.isFinite(v) ? v.toFixed(3) : v)).join(', '),
+      CD0: cd.map(v => (Number.isFinite(v) ? v.toFixed(4) : v)).join(', ')
+    }));
+    setPolarsFromCase(true);
+    setPolarsStatus('loaded');
+    return true;
+  }, []);
+
+  useEffect(() => {
+    const navPolars = location.state?.polars;
+    const ctxPolars = simulationData?.polars;
+    const sourcePolars = navPolars || ctxPolars;
+
+    if (sourcePolars) {
+      const alpha = sourcePolars.alpha || sourcePolars.ALFAWI || sourcePolars.alfa || sourcePolars.ALPHA;
+      const cl = sourcePolars.cl || sourcePolars.CL || sourcePolars.CL0;
+      const cd = sourcePolars.cd || sourcePolars.CDtotVFP || sourcePolars.CD || sourcePolars.CD0;
+      const applied = applyPolarData({ alpha, cl, cd });
+      if (!applied) {
+        setPolarsFromCase(false);
+        setPolarsStatus('missing');
+      }
+      return;
+    }
+
+    if (aeroCoefficients && (aeroCoefficients.CL !== undefined) && (aeroCoefficients.CD !== undefined)) {
+      const alphaFallback = [0];
+      const clFallback = [aeroCoefficients.CL ?? 0];
+      const cdFallback = [aeroCoefficients.CD ?? 0];
+      setPolarData({ alpha: alphaFallback, cl: clFallback, cd: cdFallback });
+      setArrayInputs(prev => ({
+        ...prev,
+        ALFAWI: alphaFallback,
+        CL0: clFallback,
+        CD0: cdFallback
+      }));
+      setFormData(prev => ({
+        ...prev,
+        ALFAWI: alphaFallback.join(', '),
+        CL0: clFallback.map(v => (Number.isFinite(v) ? v.toFixed(3) : v)).join(', '),
+        CD0: cdFallback.map(v => (Number.isFinite(v) ? v.toFixed(4) : v)).join(', ')
+      }));
+      setPolarsFromCase(false);
+      setPolarsStatus('aero');
+      return;
+    }
+
+    if (sourcePolars === null) {
+      setPolarsFromCase(false);
+      setPolarsStatus('missing');
+    }
+  }, [applyPolarData, aeroCoefficients, location.state, simulationData]);
 
   const fetchCsvFile = async (file) => {
     try {
@@ -335,8 +437,8 @@ function PropellerWingForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const addDrag = parseFloat(formData.additionalDrag) || 0;
-      const cd0WithDragArr = arrayInputs.CD0.map(cd0 => cd0 + addDrag);
+      const addDrag = Number(formData.additionalDrag) || 0;
+      const cd0WithDragArr = (arrayInputs.CD0 || []).map(cd0 => Number(cd0 || 0) + addDrag);
       setCd0WithDrag(cd0WithDragArr); // <-- Save for display/export
       const payload = {
         ...formData,
@@ -354,6 +456,7 @@ function PropellerWingForm() {
       if (response.ok) {
         const data = await response.json();
         setResult(data.results);
+        console.log("Prowim results:", data.results);
       } else {
         const errorText = await response.text();
         console.error("Error:", response.statusText, errorText);
@@ -435,7 +538,7 @@ function PropellerWingForm() {
     const clValues = result.map(res => res.CZD);
     const cdValues = result.map(res => Math.abs(res.CXDwf));
     const cl0Values = arrayInputs.CL0;
-    const cd0Values = arrayInputs.CD0;
+    const cd0Values = cd0Display;
 
     const clPlot = [
       {
@@ -536,6 +639,7 @@ function PropellerWingForm() {
           onMouseDown={handleMouseDown}
           style={{ zIndex: 10, height: '100%' }}
         />
+        {renderPolarsBanner()}
         {renderCsvList()}
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -592,7 +696,7 @@ function PropellerWingForm() {
                 {polarData && <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">📊 Auto-filled</span>}
               </label>
               <input type="text" name="ALFAWI" value={formData.ALFAWI} onChange={(e) => handleArrayChange("ALFAWI", e.target.value)} placeholder="0, 5, 10" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 text-sm" />
-              <p className="text-xs text-gray-500 mt-1">Current values: [{arrayInputs.ALFAWI.map(val => val.toFixed(2)).join(', ')}]</p>
+              <p className="text-xs text-gray-500 mt-1">Current values: [{(arrayInputs.ALFAWI || []).map(val => Number(val ?? 0).toFixed(2)).join(', ')}]</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -600,7 +704,7 @@ function PropellerWingForm() {
                 {polarData && <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">📊 Auto-filled</span>}
               </label>
               <input type="text" name="CL0" value={formData.CL0} onChange={(e) => handleArrayChange("CL0", e.target.value)} placeholder="0.5, 0.6, 0.7" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 text-sm" />
-              <p className="text-xs text-gray-500 mt-1">Current values: [{arrayInputs.CL0.map(val => val.toFixed(3)).join(', ')}]</p>
+              <p className="text-xs text-gray-500 mt-1">Current values: [{(arrayInputs.CL0 || []).map(val => Number(val ?? 0).toFixed(3)).join(', ')}]</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -608,7 +712,7 @@ function PropellerWingForm() {
                 {polarData && <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">📊 Auto-filled</span>}
               </label>
               <input type="text" name="CD0" value={formData.CD0} onChange={(e) => handleArrayChange("CD0", e.target.value)} placeholder="0.02, 0.025, 0.03" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 text-sm" />
-              <p className="text-xs text-gray-500 mt-1">Current values: [{arrayInputs.CD0.map(val => val.toFixed(3)).join(', ')}]</p>
+              <p className="text-xs text-gray-500 mt-1">Current values: [{(arrayInputs.CD0 || []).map(val => Number(val ?? 0).toFixed(3)).join(', ')}]</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Additional Drag to be added to CD0</label>
@@ -616,13 +720,13 @@ function PropellerWingForm() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">KS00 (Auto-computed)</label>
-              <input type="text" value={arrayInputs.KS00.map(val => val.toFixed(5)).join(', ')} readOnly className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 text-sm cursor-not-allowed" />
+              <input type="text" value={(arrayInputs.KS00 || []).map(val => Number(val ?? 0).toFixed(5)).join(', ')} readOnly className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 text-sm cursor-not-allowed" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">TS00 (Auto-computed)</label>
               <input
                 type="text"
-                value={arrayInputs.TS00.map(val => {
+                value={(arrayInputs.TS00 || []).map(val => {
                   const num = Number(val);
                   return isNaN(num) ? '' : num.toFixed(5);
                 }).join(', ')}

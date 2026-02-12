@@ -15,6 +15,7 @@
     "d3-delaunay": "^6.0.4",
     "lucide-react": "^0.477.0",
     "numeric": "^1.2.6",
+    "oboe": "^2.1.7",
     "plotly.js": "^3.0.1",
     "react": "^19.0.0",
     "react-chartjs-2": "^5.3.0",

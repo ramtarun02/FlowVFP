@@ -1,18 +1,13 @@
 import React, { useState, useEffect } from "react";
 import Plot from "react-plotly.js";
 import { useNavigate } from "react-router-dom";
-import { fetchAPI } from '../utils/fetch';
 import { useSimulationData } from "../components/SimulationDataContext";
 
 function ContourPlot() {
     const navigate = useNavigate();
-    const { simulationData } = useSimulationData();
+    const { simulationData, parsedCpData } = useSimulationData();
 
-    // State for available .cp files and parsed cpData objects
-    const [availableCpFiles, setAvailableCpFiles] = useState([]);
-    const [parsedCpFiles, setParsedCpFiles] = useState([]);
-    const [selectedCpFile, setSelectedCpFile] = useState("");
-    const [cpData, setCpData] = useState(null);
+    const cpData = parsedCpData;
 
     // Plot config states
     const [levels, setLevels] = useState([]);
@@ -23,65 +18,14 @@ function ContourPlot() {
     const [minValue, setMinValue] = useState(0);
     const [maxValue, setMaxValue] = useState(1);
 
-    // Load available .cp files from simulationData
+    // When parsed CP data is not available, reset plots
     useEffect(() => {
-        if (simulationData?.files?.cp) {
-            setAvailableCpFiles(simulationData.files.cp);
-            // Always set selectedCpFile to the first file if only one exists or if not already set
-            if (simulationData.files.cp.length === 1) {
-                setSelectedCpFile(simulationData.files.cp[0].name || simulationData.files.cp[0].file?.name || (simulationData.files.cp[0] instanceof File ? simulationData.files.cp[0].name : ""));
-            } else if (simulationData.files.cp.length > 1 && !selectedCpFile) {
-                setSelectedCpFile(simulationData.files.cp[0].name || simulationData.files.cp[0].file?.name || (simulationData.files.cp[0] instanceof File ? simulationData.files.cp[0].name : ""));
-            }
+        if (!cpData) {
+            setLevels([]);
+            setSelectedLevel("");
+            setPlotData(null);
         }
-    }, [simulationData]);
-
-    // Parse selected .cp file and store in array
-    useEffect(() => {
-        if (!selectedCpFile || !availableCpFiles.length) return;
-        // Check if already parsed
-        const existing = parsedCpFiles.find(f => f.fileName === selectedCpFile);
-        if (existing) {
-            setCpData(existing.data);
-            return;
-        }
-        // Find file object
-        const fileObj = availableCpFiles.find(f => {
-            const fileName = f.name || (f.file && f.file.name) || (f instanceof File ? f.name : "");
-            return fileName === selectedCpFile;
-        });
-        if (!fileObj) return;
-        // Prepare FormData for file upload
-        let file;
-        if (fileObj.file instanceof File) {
-            file = fileObj.file;
-        } else if (fileObj instanceof File) {
-            file = fileObj;
-        } else {
-            // fallback: try to get file from fileObj.file or fileObj
-            file = fileObj.file || fileObj;
-        }
-
-        if (!(file instanceof File)) {
-            setCpData(null);
-            return; // Prevent sending invalid file
-        }
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("fileName", file.name);
-        formData.append("simName", simulationData?.simName || "unknown");
-
-        fetchAPI("/parse_cp", {
-            method: "POST",
-            body: formData
-        })
-            .then(res => res.json())
-            .then(data => {
-                setParsedCpFiles(prev => [...prev, { fileName: selectedCpFile, data }]);
-                setCpData(data);
-            })
-            .catch(() => setCpData(null));
-    }, [selectedCpFile, availableCpFiles, simulationData]);
+    }, [cpData]);
 
     // Levels dropdown
     useEffect(() => {
@@ -251,7 +195,7 @@ function ContourPlot() {
                             </p>
                             <p className="text-sm">
                                 <span className="font-semibold text-gray-700">CP File:</span>
-                                <span className="text-gray-900"> {selectedCpFile || "None"}</span>
+                                <span className="text-gray-900"> {simulationData?.selectedFiles?.cp?.name || "Current CP selection"}</span>
                             </p>
                         </div>
                     </div>
@@ -259,23 +203,6 @@ function ContourPlot() {
                         <h3 className="text-lg font-semibold text-gray-800 mb-3 pb-2 border-b-2 border-blue-400">
                             Plot Configuration
                         </h3>
-                        {/* CP File Selection */}
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">CP File</label>
-                            <select
-                                value={selectedCpFile}
-                                onChange={e => setSelectedCpFile(e.target.value)}
-                                className="w-full px-3 py-2 border border-blue-300 rounded-lg bg-white text-gray-900"
-                            >
-                                {availableCpFiles.map((f, idx) => {
-                                    // Support both {name, file} and File objects
-                                    const fileName = f.name || (f.file && f.file.name) || (f instanceof File ? f.name : `cpfile_${idx}`);
-                                    return (
-                                        <option key={fileName} value={fileName}>{fileName}</option>
-                                    );
-                                })}
-                            </select>
-                        </div>
                         {/* Level Selection */}
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700 mb-2">Level</label>
@@ -366,7 +293,7 @@ function ContourPlot() {
                                 Welcome to 3D Wing Contour Visualization
                             </h2>
                             <p className="text-gray-600 text-lg mb-6">
-                                Select a CP file, level, and configure parameters to display 3D contour plots
+                                Load a CP file in VFP Post, then pick a level to display 3D contour plots.
                             </p>
                         </div>
                     )}

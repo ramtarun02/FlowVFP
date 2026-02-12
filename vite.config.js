@@ -3,10 +3,6 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
     base: '/VFP-2025',
-    define: {
-        'process.env.NODE_ENV': JSON.stringify('production'),
-        global: 'globalThis',
-    },
 
     plugins: [react()],
     server: {

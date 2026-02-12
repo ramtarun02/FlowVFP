@@ -2,11 +2,13 @@ import React from "react";
 import { HashRouter as Router, Routes, Route } from "react-router-dom";
 import LandingPage from "./components/LandingPage";
 import GeometryModule from "./components/GeometryModule";
-import RunSolver from "./components/runSolver/runSolver";
+import RunSolver from "./components/runSolver";
 import Solver from "./components/Solver"
 import PostProcessing from "./components/PostProcessing";
+import VFPPost from "./components/VFPPost"
 import ProWiM from "./components/ProWiM"
-import { FormDataProvider } from "./components/FormDataContext";
+import { VfpDataContext, VfpDataProvider } from "./components/vfpDataContext";
+
 import SimulationRun from "./components/SimulationRun";
 import BoundaryLayer from "./components/BoundaryLayerData";
 import ContourPlot from "./components/ContourPlot";
@@ -16,7 +18,7 @@ import Research from "./components/Research";
 
 function App() {
   return (
-    <FormDataProvider>
+    <VfpDataProvider>
       <SimulationDataProvider>
         <Router>
           <Routes>
@@ -25,6 +27,7 @@ function App() {
             <Route path="/run-solver" element={<RunSolver />} />
             <Route path="/results" element={<Solver />} />
             <Route path="/post-processing" element={<PostProcessing />} />
+            <Route path="/vfppost" element={<VFPPost />} />
             <Route path="/post-processing/prowim" element={<ProWiM />} />
             <Route path="/post-processing/contour-plot" element={<ContourPlot />} />
             <Route path="/post-processing/boundary-layer" element={<BoundaryLayer />} />
@@ -33,7 +36,7 @@ function App() {
           </Routes>
         </Router>
       </SimulationDataProvider>
-    </FormDataProvider>
+    </VfpDataProvider>
   );
 }
 

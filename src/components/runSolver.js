@@ -1,52 +1,85 @@
 import React, { useState, useEffect, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import FormDataContext from "../FormDataContext";
-import { fetchAPI } from "../../utils/fetch";
+import { fetchAPI } from "../utils/fetch";
+import { VfpDataContext } from "./vfpDataContext";
+
+// Helpers to avoid recreating default shapes
+const baseFormData = {
+  simName: "",
+  mach: "",
+  aoa: "",
+  reynolds: "",
+  continuationRun: false,
+  wingDumpName: "",
+  tailDumpName: "",
+  uploadId: "",
+  continuationSplitKey: "",
+  continuationSplitFile: "",
+  excrescence: false,
+  autoRunner: false,
+  autoStepSize: "",
+  autoMode: "aoa",
+  autoEndAoA: "",
+  autoEndMach: "",
+  continuationSelections: []
+};
+
+const baseInputFiles = () => ({
+  wingConfig: { fileNames: { GeoFile: "", MapFile: "", DatFile: "" }, fileData: {} },
+  tailConfig: { fileNames: { GeoFile: "", MapFile: "", DatFile: "" }, fileData: {} },
+  bodyFiles: { fileNames: [], fileData: {} }
+});
+
+const normalizeVfpPayload = (parsed) => {
+  const normalizeSection = (sectionName) => {
+    const section = parsed?.inputFiles?.[sectionName] || {};
+    const fileNames = section.fileNames || {};
+    return {
+      fileNames: {
+        GeoFile: "",
+        MapFile: "",
+        DatFile: "",
+        ...fileNames
+      },
+      fileData: section.fileData || {}
+    };
+  };
+
+  const normalizedInput = {
+    wingConfig: normalizeSection("wingConfig"),
+    tailConfig: normalizeSection("tailConfig"),
+    bodyFiles: {
+      fileNames: Array.isArray(parsed?.inputFiles?.bodyFiles?.fileNames) ? parsed.inputFiles.bodyFiles.fileNames : [],
+      fileData: parsed?.inputFiles?.bodyFiles?.fileData || {}
+    }
+  };
+
+  const mergedForm = { ...baseFormData, ...(parsed?.formData || {}) };
+  const resultsNode = parsed?.results || parsed?.output || parsed?.analysis || parsed?.resultsSection || null;
+
+  return { mergedForm, normalizedInput, resultsNode };
+};
 
 function RunSolver() {
-  // File states for each section
-  const [wingFiles, setWingFiles] = useState({ GEO: null, MAP: null, DAT: null });
-  const [tailFiles, setTailFiles] = useState({ GEO: null, MAP: null, DAT: null });
-  const [bodyFiles, setBodyFiles] = useState([]); // Array of { name, file }
-
-  // Flow condition states
-  const [simName, setSimName] = useState("");
-  const [mach, setMach] = useState("");
-  const [aoa, setAoA] = useState("");
-  const [reynolds, setReynolds] = useState("");
-
-  // Run options
-  const [continuation, setContinuation] = useState(false);
-  const [dumpName, setDumpName] = useState("");
-  const [excrescence, setExcrescence] = useState(false);
-
-  const [autoRunner, setAutoRunner] = useState(false);
-  const [autoStepSize, setAutoStepSize] = useState("");
-  const [autoEndAoA, setAutoEndAoA] = useState("");
-  const [autoEndMach, setAutoEndMach] = useState("");
-  const [autoMode, setAutoMode] = useState("aoa");
-
-
-  // Validation and warning states
+  const { vfpData, setVfpData } = useContext(VfpDataContext);
   const [incomplete, setIncomplete] = useState(false);
   const [warningMsg, setWarningMsg] = useState("");
-
-  const { setFormData } = useContext(FormDataContext);
+  const [continuationKeys, setContinuationKeys] = useState([]);
+  const [continuationDropdownOpen, setContinuationDropdownOpen] = useState(false);
+  const [uploadedCaseName, setUploadedCaseName] = useState("");
+  const [continuationKeyToFile, setContinuationKeyToFile] = useState({});
   const navigate = useNavigate();
+  const importInputRef = useRef();
 
-  // Helper to check if any file is present in a config
-  const hasFiles = filesObj => Object.values(filesObj).some(f => !!f);
+  // Helpers
+  const hasFiles = filesObj => Object.values(filesObj.fileNames).some(name => !!name);
 
   // Validation for incomplete config and warning logic
   useEffect(() => {
-    // Always require at least one wing file
-    const wingPresent = hasFiles(wingFiles);
+    const wingPresent = hasFiles(vfpData.inputFiles.wingConfig);
+    const tailPresent = hasFiles(vfpData.inputFiles.tailConfig);
+    const bodyPresent = vfpData.inputFiles.bodyFiles.fileNames.length > 0;
 
-    // Tail and body logic
-    const tailPresent = hasFiles(tailFiles);
-    const bodyPresent = bodyFiles.length > 0;
-
-    // If tail is present, body must be present
     if (tailPresent && !bodyPresent) {
       setIncomplete(true);
       setWarningMsg("For a Wing/Tail simulation, you must also upload at least one Additional Body/Spec File.");
@@ -57,293 +90,238 @@ function RunSolver() {
       setWarningMsg("");
       setIncomplete(!wingPresent);
     }
-  }, [wingFiles, tailFiles, bodyFiles]);
+  }, [vfpData]);
 
   // File input handlers
-  const handleWingFile = (type, file) => setWingFiles(f => ({ ...f, [type]: file }));
-  const handleTailFile = (type, file) => setTailFiles(f => ({ ...f, [type]: file }));
-  const handleBodyFile = (file) => {
-    setBodyFiles(arr => [...arr, { name: file.name, file }]);
-  };
-  const removeBodyFile = idx => setBodyFiles(arr => arr.filter((_, i) => i !== idx));
-  const removeWingFile = type => setWingFiles(f => ({ ...f, [type]: null }));
-  const removeTailFile = type => setTailFiles(f => ({ ...f, [type]: null }));
-
-  // Helper to read a File as text (returns a Promise)
-  const readFileAsText = (file) =>
-    new Promise((resolve, reject) => {
-      if (!file) return resolve(null);
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsText(file);
-    });
-
-  // Save Draft handler
-  const handleSaveDraft = async () => {
-    // Gather all file data
-    const wingFileNames = {
-      GeoFile: wingFiles.GEO ? wingFiles.GEO.name : "",
-      MapFile: wingFiles.MAP ? wingFiles.MAP.name : "",
-      DatFile: wingFiles.DAT ? wingFiles.DAT.name : "",
-    };
-    const tailFileNames = {
-      GeoFile: tailFiles.GEO ? tailFiles.GEO.name : "",
-      MapFile: tailFiles.MAP ? tailFiles.MAP.name : "",
-      DatFile: tailFiles.DAT ? tailFiles.DAT.name : "",
-    };
-    const bodyFileNames = bodyFiles.map(b => b.name);
-
-    // Read all files as text
-    const wingFileData = {};
-    if (wingFiles.GEO) wingFileData[wingFiles.GEO.name] = await readFileAsText(wingFiles.GEO);
-    if (wingFiles.MAP) wingFileData[wingFiles.MAP.name] = await readFileAsText(wingFiles.MAP);
-    if (wingFiles.DAT) wingFileData[wingFiles.DAT.name] = await readFileAsText(wingFiles.DAT);
-
-    const tailFileData = {};
-    if (tailFiles.GEO) tailFileData[tailFiles.GEO.name] = await readFileAsText(tailFiles.GEO);
-    if (tailFiles.MAP) tailFileData[tailFiles.MAP.name] = await readFileAsText(tailFiles.MAP);
-    if (tailFiles.DAT) tailFileData[tailFiles.DAT.name] = await readFileAsText(tailFiles.DAT);
-
-    const bodyFileData = {};
-    for (const b of bodyFiles) {
-      bodyFileData[b.name] = await readFileAsText(b.file);
+  const handleFile = async (section, type, file) => {
+    if (!file) {
+      setVfpData(prev => ({
+        ...prev,
+        inputFiles: {
+          ...prev.inputFiles,
+          [section]: {
+            ...prev.inputFiles[section],
+            fileNames: { ...prev.inputFiles[section].fileNames, [type]: "" },
+            fileData: { ...prev.inputFiles[section].fileData, [prev.inputFiles[section].fileNames[type]]: undefined },
+          },
+        },
+      }));
+      return;
     }
 
-    // Compose the JSON object
-    const draft = {
-      metadata: {
-        createdAt: new Date().toISOString(),
-        version: "1.0",
-        module: "FlowVFP CFD",
-      },
-      formData: {
-        simName,
-        mach,
-        aoa,
-        reynolds,
-        continuation,
-        dumpName,
-        excrescence,
-        autoRunner,
-        autoStepSize,
-        autoEndAoA,
-        autoEndMach,
-        autoMode,
-      },
+    const text = await file.text();
+    setVfpData(prev => ({
+      ...prev,
       inputFiles: {
-        wingConfig: {
-          fileNames: wingFileNames,
-          fileData: wingFileData,
-        },
-        tailConfig: {
-          fileNames: tailFileNames,
-          fileData: tailFileData,
-        },
-        bodyFiles: {
-          fileNames: bodyFileNames,
-          fileData: bodyFileData,
+        ...prev.inputFiles,
+        [section]: {
+          ...prev.inputFiles[section],
+          fileNames: { ...prev.inputFiles[section].fileNames, [type]: file.name },
+          fileData: { ...prev.inputFiles[section].fileData, [file.name]: text },
         },
       },
-    };
+    }));
+  };
 
-    // Download as .vfp file
-    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
+  const handleBodyFile = async (file) => {
+    if (!file) return;
+    const text = await file.text();
+    setVfpData(prev => ({
+      ...prev,
+      inputFiles: {
+        ...prev.inputFiles,
+        bodyFiles: {
+          fileNames: [...prev.inputFiles.bodyFiles.fileNames, file.name],
+          fileData: { ...prev.inputFiles.bodyFiles.fileData, [file.name]: text },
+        },
+      },
+    }));
+  };
+
+  const removeBodyFile = idx => {
+    setVfpData(prev => {
+      const names = [...prev.inputFiles.bodyFiles.fileNames];
+      const name = names[idx];
+      names.splice(idx, 1);
+      const fileData = { ...prev.inputFiles.bodyFiles.fileData };
+      delete fileData[name];
+      return {
+        ...prev,
+        inputFiles: {
+          ...prev.inputFiles,
+          bodyFiles: { fileNames: names, fileData },
+        },
+      };
+    });
+  };
+
+  // Form field handlers
+  const handleFormField = (field, value) => {
+    setVfpData(prev => {
+      const nextForm = { ...prev.formData, [field]: value };
+      if (field === "continuationRun" && !value) {
+        nextForm.continuationSplitKey = "";
+        nextForm.continuationSplitFile = "";
+      }
+      return { ...prev, formData: nextForm };
+    });
+    if (field === "continuationRun" && !value) {
+      setContinuationDropdownOpen(false);
+    }
+  };
+
+  const handleContinuationSelection = (key) => {
+    const nextKey = vfpData.formData.continuationSplitKey === key ? "" : key;
+    const nextFile = nextKey ? continuationKeyToFile[nextKey] || "" : "";
+    setVfpData(prev => ({
+      ...prev,
+      formData: { ...prev.formData, continuationSplitKey: nextKey, continuationSplitFile: nextFile }
+    }));
+    setContinuationDropdownOpen(false);
+  };
+
+  // Save Draft handler
+  const handleSaveDraft = () => {
+    const blob = new Blob([JSON.stringify(vfpData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    // Format date as YYYYMMDD-HHmmss
     const now = new Date();
     const pad = n => n.toString().padStart(2, "0");
     const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    a.download = simName
-      ? simName + ".vfp"
+    a.download = vfpData.formData.simName
+      ? vfpData.formData.simName + ".vfp"
       : `draft-${dateStr}.vfp`;
-
+    a.href = url;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-
-  // Add a ref for the hidden file input
-  const importInputRef = useRef();
-
-  // Helper to create a File object from name and content
-  const createFile = (name, content) => {
-    try {
-      return new File([content], name, { type: "text/plain" });
-    } catch {
-      // For older browsers
-      const blob = new Blob([content], { type: "text/plain" });
-      blob.lastModifiedDate = new Date();
-      blob.name = name;
-      return blob;
-    }
-  };
-
-  // Handler for importing a VFP case
+  // Import VFP case handler
   const handleImportVFP = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
+
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
+      const formData = new FormData();
+      formData.append("file", file);
 
-      // Populate form fields
-      const fd = data.formData || {};
-      setSimName(fd.simName || "");
-      setMach(fd.mach || "");
-      setAoA(fd.aoa || "");
-      setReynolds(fd.reynolds || "");
-      setContinuation(!!fd.continuation);
-      setDumpName(fd.dumpName || "");
-      setExcrescence(!!fd.excrescence);
-      setAutoRunner(!!fd.autoRunner);
-      setAutoStepSize(fd.autoStepSize || "");
-      setAutoEndAoA(fd.autoEndAoA || "");
-      setAutoEndMach(fd.autoEndMach || "");
-      setAutoMode(fd.autoMode || "aoa");
-
-      // Populate files
-      const inputFiles = data.inputFiles || {};
-      // Wing files
-      const wingCfg = inputFiles.wingConfig || {};
-      const wingNames = wingCfg.fileNames || {};
-      const wingData = wingCfg.fileData || {};
-      setWingFiles({
-        GEO: wingNames.GeoFile && wingData[wingNames.GeoFile]
-          ? createFile(wingNames.GeoFile, wingData[wingNames.GeoFile])
-          : null,
-        MAP: wingNames.MapFile && wingData[wingNames.MapFile]
-          ? createFile(wingNames.MapFile, wingData[wingNames.MapFile])
-          : null,
-        DAT: wingNames.DatFile && wingData[wingNames.DatFile]
-          ? createFile(wingNames.DatFile, wingData[wingNames.DatFile])
-          : null,
+      const uploadResp = await fetchAPI("/upload_vfp", {
+        method: "POST",
+        body: formData
       });
 
-      // Tail files
-      const tailCfg = inputFiles.tailConfig || {};
-      const tailNames = tailCfg.fileNames || {};
-      const tailData = tailCfg.fileData || {};
-      setTailFiles({
-        GEO: tailNames.GeoFile && tailData[tailNames.GeoFile]
-          ? createFile(tailNames.GeoFile, tailData[tailNames.GeoFile])
-          : null,
-        MAP: tailNames.MapFile && tailData[tailNames.MapFile]
-          ? createFile(tailNames.MapFile, tailData[tailNames.MapFile])
-          : null,
-        DAT: tailNames.DatFile && tailData[tailNames.DatFile]
-          ? createFile(tailNames.DatFile, tailData[tailNames.DatFile])
-          : null,
-      });
+      const data = await uploadResp.json();
 
-      // Body files
-      const bodyCfg = inputFiles.bodyFiles || {};
-      const bodyNames = bodyCfg.fileNames || [];
-      const bodyData = bodyCfg.fileData || {};
-      setBodyFiles(
-        bodyNames
-          .filter(name => !!bodyData[name])
-          .map(name => ({
-            name,
-            file: createFile(name, bodyData[name]),
-          }))
-      );
+      if (!uploadResp.ok) {
+        throw new Error(data?.message || "Upload failed");
+      }
+
+      const parsedMain = typeof data?.main === "string" ? JSON.parse(data.main) : (data?.main || {});
+      const manifest = data?.manifest || {};
+      const keyFileMap = {};
+      (manifest?.splitNodes || []).forEach(node => {
+        if (node?.key) keyFileMap[node.key] = node.file || "";
+      });
+      const splitKeys = Array.isArray(manifest?.splitNodes)
+        ? manifest.splitNodes.map(node => node?.key).filter(Boolean)
+        : [];
+
+      const { mergedForm, normalizedInput } = normalizeVfpPayload(parsedMain);
+
+      setContinuationKeys(splitKeys);
+      setContinuationKeyToFile(keyFileMap);
+      setContinuationDropdownOpen(false);
+      setUploadedCaseName(data?.uploadedFileName || file.name);
+
+      setVfpData(prev => ({
+        ...prev,
+        formData: {
+          ...mergedForm,
+          uploadId: data?.uploadId || "",
+          continuationSplitKey: "",
+          continuationSplitFile: ""
+        },
+        inputFiles: normalizedInput
+      }));
     } catch (err) {
-      alert("Failed to import VFP case: " + err.message);
+      console.error("Import error:", err);
+      alert(err?.message || "Failed to import file. Invalid JSON or unsupported format.");
     } finally {
       e.target.value = "";
     }
   };
 
-  // Submit handler
+  const handleReset = () => {
+    setVfpData({
+      formData: { ...baseFormData },
+      inputFiles: baseInputFiles()
+    });
+    setContinuationKeys([]);
+    setContinuationKeyToFile({});
+    setContinuationDropdownOpen(false);
+    setUploadedCaseName("");
+  };
+
+  // Submit handler: send vfpData JSON to backend
   const handleSubmit = async () => {
+    const continuationSelections =
+      vfpData.formData.continuationRun && vfpData.formData.continuationSplitKey
+        ? [vfpData.formData.continuationSplitKey]
+        : [];
+
+    const payload = {
+      ...vfpData,
+      formData: {
+        ...vfpData.formData,
+        continuationSelections
+      }
+    };
+
+    console.log("Submitting VFP data:", payload);
     try {
-      const formData = new FormData();
-
-      // Always append wing files if present
-      Object.entries(wingFiles).forEach(([type, file]) => file && formData.append(`wing_${type}`, file));
-
-      // If tail files are present, append tail and body files separately
-      if (hasFiles(tailFiles)) {
-        Object.entries(tailFiles).forEach(([type, file]) => file && formData.append(`tail_${type}`, file));
-        bodyFiles.forEach((b, idx) => formData.append(`tail_${idx}`, b.file));
-      } else {
-        // If only wing simulation, append body files if present (optional)
-        bodyFiles.forEach((b, idx) => formData.append(`tail_${idx}`, b.file));
-      }
-
-      // Append text fields
-      formData.append("simName", simName);
-      formData.append("mach", mach);
-      formData.append("aoa", aoa);
-      formData.append("reynolds", reynolds);
-      formData.append("continuation", continuation);
-      formData.append("dumpName", dumpName);
-      formData.append("excrescence", excrescence);
-      formData.append("bodyFiles", JSON.stringify(bodyFiles.map(b => b.name)));
-
-      // Auto Runner options
-      formData.append("autoRunner", autoRunner);
-      if (autoRunner) {
-        formData.append("autoStepSize", autoStepSize);
-        if (autoMode === "aoa") {
-          formData.append("autoEndAoA", autoEndAoA);
-        } else {
-          formData.append("autoEndMach", autoEndMach);
-        }
-        formData.append("autoMode", autoMode);
-      }
-
-      // Add additional parameters with file names
-      // Wing files
-      formData.append("wing_GEO", wingFiles.GEO ? wingFiles.GEO.name : "");
-      formData.append("wing_MAP", wingFiles.MAP ? wingFiles.MAP.name : "");
-      formData.append("wing_DAT", wingFiles.DAT ? wingFiles.DAT.name : "");
-      // Tail files
-      formData.append("tail_GEO", tailFiles.GEO ? tailFiles.GEO.name : "");
-      formData.append("tail_MAP", tailFiles.MAP ? tailFiles.MAP.name : "");
-      formData.append("tail_DAT", tailFiles.DAT ? tailFiles.DAT.name : "");
-      // First body file as tail_0 (if present)
-      formData.append("tail_0", bodyFiles[0] ? bodyFiles[0].name : "");
-
-      setFormData(formData);
-
       const response = await fetchAPI("/start-vfp", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      const result = await response.json();
-      navigate("/results", { state: { result } });
+      await response.json();
+      navigate("/results");
     } catch (error) {
       console.error("Error submitting form:", error);
     }
   };
 
-  // File row component
-  const FileRow = ({ label, desc, icon, file, onFile, onRemove, accept }) => (
-    <div className={`flex items-center justify-between rounded-lg border ${file ? "bg-green-50 border-green-200" : "border-gray-200"} px-4 py-3 mb-3`}>
-      <div className="flex items-center gap-3">
-        <span className="text-2xl">{icon}</span>
-        <div>
-          <div className="font-semibold text-gray-900 text-sm">{label}</div>
-          <div className="text-xs text-gray-500">{desc}</div>
-          {file && <div className="text-xs text-green-700 mt-1">{file.name}</div>}
+  // Helper: is this a wing+tail simulation?
+  const isWingTailSim = () => {
+    const tailPresent = hasFiles(vfpData.inputFiles.tailConfig);
+    const bodyPresent = vfpData.inputFiles.bodyFiles.fileNames.length > 0;
+    return tailPresent && bodyPresent;
+  };
+
+  // FileRow and BodyFileRow as before, but use vfpData
+  const FileRow = ({ label, desc, icon, section, type, accept }) => {
+    const fileName = vfpData.inputFiles[section].fileNames[type];
+    return (
+      <div className={`flex items-center justify-between rounded-lg border ${fileName ? "bg-green-50 border-green-200" : "border-gray-200"} px-4 py-3 mb-3`}>
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{icon}</span>
+          <div>
+            <div className="font-semibold text-gray-900 text-sm">{label}</div>
+            <div className="text-xs text-gray-500">{desc}</div>
+            {fileName && <div className="text-xs text-green-700 mt-1">{fileName}</div>}
+          </div>
         </div>
-      </div>
-      <div className="flex items-center gap-2">
-        {!file && (
-          <>
+        <div className="flex items-center gap-2">
+          {!fileName && (
             <label className="inline-flex items-center cursor-pointer">
               <input
                 type="file"
                 className="hidden"
                 accept={accept}
                 onChange={e => {
-                  if (e.target.files[0]) onFile(e.target.files[0]);
+                  if (e.target.files[0]) handleFile(section, type, e.target.files[0]);
                   e.target.value = "";
                 }}
               />
@@ -352,36 +330,35 @@ function RunSolver() {
                 Upload
               </span>
             </label>
-          </>
-        )}
-        {file && (
-          <>
-            <span className="text-green-700 font-semibold text-xs flex items-center gap-1">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
-              Uploaded
-            </span>
-            <button
-              className="text-gray-400 hover:text-blue-600"
-              title="Replace"
-              onClick={() => onFile(null)}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v16h16V4H4zm4 8h8" /></svg>
-            </button>
-            <button
-              className="text-gray-400 hover:text-red-600"
-              title="Remove"
-              onClick={onRemove}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </>
-        )}
+          )}
+          {fileName && (
+            <>
+              <span className="text-green-700 font-semibold text-xs flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
+                Uploaded
+              </span>
+              <button
+                className="text-gray-400 hover:text-blue-600"
+                title="Replace"
+                onClick={() => handleFile(section, type, null)}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v16h16V4H4zm4 8h8" /></svg>
+              </button>
+              <button
+                className="text-gray-400 hover:text-red-600"
+                title="Remove"
+                onClick={() => handleFile(section, type, null)}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  // Body file row
-  const BodyFileRow = ({ file, onRemove }) => (
+  const BodyFileRow = ({ fileName, onRemove }) => (
     <div className="flex items-center justify-between rounded-lg border bg-green-50 border-green-200 px-4 py-3 mb-3">
       <div className="flex items-center gap-3">
         <span className="text-2xl">
@@ -389,7 +366,7 @@ function RunSolver() {
         </span>
         <div>
           <div className="font-semibold text-gray-900 text-sm">Tail Spec</div>
-          <div className="text-xs text-green-700 mt-1">{file.name}</div>
+          <div className="text-xs text-green-700 mt-1">{fileName}</div>
         </div>
       </div>
       <button
@@ -405,11 +382,10 @@ function RunSolver() {
   // Main render
   return (
     <div className="min-h-screen bg-[#fafbfc] font-sans">
-      {/* HEADER */}
+      {/* ...header and stepper unchanged... */}
       <header className="bg-white border-b border-gray-200" style={{ boxShadow: "0 2px 8px 0 rgba(16,30,54,.04)" }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between px-8 py-5">
           <div className="flex items-center gap-3">
-            {/* VFP Logo instead of blue icon */}
             <span className="rounded-lg flex items-center justify-center">
               <img
                 src="/VFP-2025/flowVFP-logo.png"
@@ -450,7 +426,6 @@ function RunSolver() {
           </div>
         </div>
       </header>
-      {/* STEPPER & BACK BUTTON */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-7xl mx-auto flex items-center justify-between px-8 py-4">
           <div className="flex items-center gap-6">
@@ -473,29 +448,18 @@ function RunSolver() {
           </button>
         </div>
       </div>
-
-      {/* MAIN CONTENT */}
       <main className="max-w-7xl mx-auto px-8 py-8">
         <div className="flex flex-col md:flex-row gap-8">
           {/* LEFT: FILE UPLOADS */}
           <div className="flex-1 min-w-0">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Configure Multi-Body Simulation</h1>
             <div className="text-gray-500 mb-7 text-lg">Upload configuration files and set flow conditions for your CFD analysis</div>
-
             {/* Wing Config */}
             <section className="mb-6">
               <div className="rounded-2xl overflow-hidden shadow border border-blue-200 bg-blue-50">
                 <div className="flex items-center gap-3 px-6 py-4">
-                  <span className="bg-blue-600 rounded-lg p-2 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M2 16l10-8 10 8" /></svg>
-                  </span>
-                  <div>
-                    <div className="font-semibold text-blue-900 text-lg">Wing Configuration Files</div>
-                    <div className="text-xs text-blue-900">Primary aerodynamic surface</div>
-                  </div>
                   <span className="ml-auto text-xs font-bold text-blue-700 bg-blue-100 rounded px-2 py-0.5 flex items-center gap-1">
                     Required
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><circle cx="12" cy="8" r="1" /></svg>
                   </span>
                 </div>
                 <div className="bg-white px-6 py-5">
@@ -503,47 +467,35 @@ function RunSolver() {
                     label="GEO File"
                     desc="Geometry definition"
                     icon={<svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>}
-                    file={wingFiles.GEO}
-                    onFile={f => handleWingFile("GEO", f)}
-                    onRemove={() => removeWingFile("GEO")}
+                    section="wingConfig"
+                    type="GeoFile"
                     accept=".geo"
                   />
                   <FileRow
                     label="MAP File"
                     desc="Surface mapping data"
                     icon={<svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M7 7h10v10H7z" /></svg>}
-                    file={wingFiles.MAP}
-                    onFile={f => handleWingFile("MAP", f)}
-                    onRemove={() => removeWingFile("MAP")}
+                    section="wingConfig"
+                    type="MapFile"
                     accept=".map"
                   />
                   <FileRow
                     label="DAT File"
                     desc="Airfoil data"
                     icon={<svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 8h8v8H8z" /></svg>}
-                    file={wingFiles.DAT}
-                    onFile={f => handleWingFile("DAT", f)}
-                    onRemove={() => removeWingFile("DAT")}
+                    section="wingConfig"
+                    type="DatFile"
                     accept=".dat"
                   />
                 </div>
               </div>
             </section>
-
             {/* Tail Config */}
             <section className="mb-6">
               <div className="rounded-2xl overflow-hidden shadow border border-purple-200 bg-purple-50">
                 <div className="flex items-center gap-3 px-6 py-4">
-                  <span className="bg-purple-600 rounded-lg p-2 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M2 16l10-8 10 8" /></svg>
-                  </span>
-                  <div>
-                    <div className="font-semibold text-purple-900 text-lg">Tail Configuration Files</div>
-                    <div className="text-xs text-purple-900">Stabilizer and control surfaces</div>
-                  </div>
                   <span className="ml-auto text-xs font-bold text-purple-700 bg-purple-100 rounded px-2 py-0.5 flex items-center gap-1">
                     Optional
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><circle cx="12" cy="8" r="1" /></svg>
                   </span>
                 </div>
                 <div className="bg-white px-6 py-5">
@@ -551,52 +503,40 @@ function RunSolver() {
                     label="GEO File"
                     desc="Geometry definition"
                     icon={<svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>}
-                    file={tailFiles.GEO}
-                    onFile={f => handleTailFile("GEO", f)}
-                    onRemove={() => removeTailFile("GEO")}
+                    section="tailConfig"
+                    type="GeoFile"
                     accept=".geo"
                   />
                   <FileRow
                     label="MAP File"
                     desc="Surface mapping data"
                     icon={<svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M7 7h10v10H7z" /></svg>}
-                    file={tailFiles.MAP}
-                    onFile={f => handleTailFile("MAP", f)}
-                    onRemove={() => removeTailFile("MAP")}
+                    section="tailConfig"
+                    type="MapFile"
                     accept=".map"
                   />
                   <FileRow
                     label="DAT File"
                     desc="Airfoil data"
                     icon={<svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 8h8v8H8z" /></svg>}
-                    file={tailFiles.DAT}
-                    onFile={f => handleTailFile("DAT", f)}
-                    onRemove={() => removeTailFile("DAT")}
+                    section="tailConfig"
+                    type="DatFile"
                     accept=".dat"
                   />
                 </div>
               </div>
             </section>
-
             {/* Additional Bodies */}
             <section className="mb-6">
               <div className="rounded-2xl overflow-hidden shadow border border-green-200 bg-green-50">
                 <div className="flex items-center gap-3 px-6 py-4">
-                  <span className="bg-green-600 rounded-lg p-2 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M2 16l10-8 10 8" /></svg>
-                  </span>
-                  <div>
-                    <div className="font-semibold text-green-900 text-lg">Additional Bodies / Spec Files</div>
-                    <div className="text-xs text-green-900">Optional components and solver specifications</div>
-                  </div>
                   <span className="ml-auto text-xs font-bold text-green-700 bg-green-100 rounded px-2 py-0.5 flex items-center gap-1">
                     Optional
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><circle cx="12" cy="8" r="1" /></svg>
                   </span>
                 </div>
                 <div className="bg-white px-6 py-5">
-                  {bodyFiles.map((b, i) => (
-                    <BodyFileRow key={i} file={b} onRemove={() => removeBodyFile(i)} />
+                  {vfpData.inputFiles.bodyFiles.fileNames.map((name, i) => (
+                    <BodyFileRow key={i} fileName={name} onRemove={() => removeBodyFile(i)} />
                   ))}
                   <label className="inline-flex items-center cursor-pointer mt-2">
                     <input
@@ -616,14 +556,11 @@ function RunSolver() {
                 </div>
               </div>
             </section>
-
-            {/* Auto-save indicator */}
             <div className="flex items-center gap-2 text-green-600 text-sm mt-4 mb-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
               Auto-save not Enabled
             </div>
           </div>
-
           {/* RIGHT: FLOW CONDITIONS & RUN OPTIONS */}
           <aside className="w-full md:w-[400px] flex-shrink-0">
             <div className="rounded-2xl shadow border border-gray-200 bg-white mb-6">
@@ -636,8 +573,8 @@ function RunSolver() {
                   <label className="block text-xs font-semibold mb-1">Simulation Name</label>
                   <input
                     type="text"
-                    value={simName}
-                    onChange={e => setSimName(e.target.value)}
+                    value={vfpData.formData.simName}
+                    onChange={e => handleFormField("simName", e.target.value)}
                     className="w-full px-3 py-2 border rounded text-sm"
                     placeholder="Wing-Tail-Analysis-v3"
                   />
@@ -649,8 +586,8 @@ function RunSolver() {
                   </label>
                   <input
                     type="number"
-                    value={mach}
-                    onChange={e => setMach(e.target.value)}
+                    value={vfpData.formData.mach}
+                    onChange={e => handleFormField("mach", e.target.value)}
                     className="w-full px-3 py-2 border rounded text-sm"
                     placeholder="0.85"
                   />
@@ -659,8 +596,8 @@ function RunSolver() {
                   <label className="block text-xs font-semibold mb-1">Angle of Attack (°)</label>
                   <input
                     type="number"
-                    value={aoa}
-                    onChange={e => setAoA(e.target.value)}
+                    value={vfpData.formData.aoa}
+                    onChange={e => handleFormField("aoa", e.target.value)}
                     className="w-full px-3 py-2 border rounded text-sm"
                     placeholder="5.0"
                   />
@@ -669,8 +606,8 @@ function RunSolver() {
                   <label className="block text-xs font-semibold mb-1">Reynolds Number</label>
                   <input
                     type="text"
-                    value={reynolds}
-                    onChange={e => setReynolds(e.target.value)}
+                    value={vfpData.formData.reynolds}
+                    onChange={e => handleFormField("reynolds", e.target.value)}
                     className="w-full px-3 py-2 border rounded text-sm"
                     placeholder="1.5e6"
                   />
@@ -683,35 +620,97 @@ function RunSolver() {
                 <span className="font-semibold text-gray-700 text-lg">Run Options</span>
               </div>
               <div className="p-6 flex flex-col gap-4">
+                {/* Single Continuation Run Checkbox */}
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={continuation}
-                    onChange={() => setContinuation(!continuation)}
-                    id="continuation"
+                    checked={!!vfpData.formData.continuationRun}
+                    onChange={() => handleFormField("continuationRun", !vfpData.formData.continuationRun)}
+                    id="continuationRun"
                     className="accent-blue-600"
                   />
-                  <label htmlFor="continuation" className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <label htmlFor="continuationRun" className="text-sm font-medium text-gray-700 flex items-center gap-1">
                     Continuation Run
                     <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><circle cx="12" cy="8" r="1" /></svg>
                   </label>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold mb-1">Dump File Name</label>
-                  <input
-                    type="text"
-                    value={dumpName}
-                    onChange={e => setDumpName(e.target.value)}
-                    className="w-full px-3 py-2 border rounded text-sm"
-                    placeholder="Previous simulation dump file"
-                    disabled={!continuation}
-                  />
-                </div>
+                {vfpData.formData.continuationRun && (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 flex flex-col gap-3">
+                    <div className="font-semibold text-gray-800 text-sm">Provide dump file names</div>
+                    <div>
+                      <label className="block text-xs font-semibold mb-1">Wing Dump File Name</label>
+                      <input
+                        type="text"
+                        value={vfpData.formData.wingDumpName}
+                        onChange={e => handleFormField("wingDumpName", e.target.value)}
+                        className="w-full px-3 py-2 border rounded text-sm"
+                        placeholder="e.g. wingDump.dat"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold mb-1">Tail Dump File Name</label>
+                      <input
+                        type="text"
+                        value={vfpData.formData.tailDumpName}
+                        onChange={e => handleFormField("tailDumpName", e.target.value)}
+                        className="w-full px-3 py-2 border rounded text-sm"
+                        placeholder="e.g. tailDump.dat"
+                      />
+                    </div>
+                    <div className="text-xs text-gray-600">Specify the dump files to restart from; import is not required.</div>
+                    {continuationKeys.length > 0 && (
+                      <div className="border border-blue-100 rounded-lg bg-white/50 p-3 mt-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold text-gray-800">Continuation source</div>
+                          <button
+                            type="button"
+                            className="text-xs text-blue-700 hover:text-blue-900 font-semibold"
+                            onClick={() => setContinuationDropdownOpen(open => !open)}
+                          >
+                            {continuationDropdownOpen ? "Hide" : "Select"}
+                          </button>
+                        </div>
+                        {uploadedCaseName && (
+                          <div className="text-xs text-gray-600 mt-1">Imported: {uploadedCaseName}</div>
+                        )}
+                        {continuationDropdownOpen && (
+                          <div className="mt-3 border border-blue-100 rounded-lg bg-white divide-y divide-blue-50">
+                            {continuationKeys.map(key => {
+                              const checked = vfpData.formData.continuationSplitKey === key;
+                              return (
+                                <label
+                                  key={key}
+                                  className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-blue-50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="accent-blue-600"
+                                    checked={checked}
+                                    onChange={() => handleContinuationSelection(key)}
+                                  />
+                                  <span className="text-gray-800">{key}</span>
+                                  {checked && (
+                                    <span className="ml-auto text-green-600 text-xs font-semibold flex items-center gap-1">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
+                                      Selected
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="text-[11px] text-gray-500 mt-2">Select a single split node to continue from.</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Excrescence */}
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={excrescence}
-                    onChange={() => setExcrescence(!excrescence)}
+                    checked={vfpData.formData.excrescence}
+                    onChange={() => handleFormField("excrescence", !vfpData.formData.excrescence)}
                     id="excrescence"
                     className="accent-blue-600"
                   />
@@ -720,11 +719,12 @@ function RunSolver() {
                     <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><circle cx="12" cy="8" r="1" /></svg>
                   </label>
                 </div>
+                {/* Auto Runner */}
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={autoRunner}
-                    onChange={() => setAutoRunner(!autoRunner)}
+                    checked={vfpData.formData.autoRunner}
+                    onChange={() => handleFormField("autoRunner", !vfpData.formData.autoRunner)}
                     id="autoRunner"
                     className="accent-blue-600"
                   />
@@ -733,14 +733,14 @@ function RunSolver() {
                     <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><circle cx="12" cy="8" r="1" /></svg>
                   </label>
                 </div>
-                {autoRunner && (
+                {vfpData.formData.autoRunner && (
                   <div className="mt-2 p-3 rounded-lg bg-blue-50 border border-blue-200 flex flex-col gap-3">
                     <div>
                       <label className="block text-xs font-semibold mb-1">Step Size</label>
                       <input
                         type="number"
-                        value={autoStepSize}
-                        onChange={e => setAutoStepSize(e.target.value)}
+                        value={vfpData.formData.autoStepSize}
+                        onChange={e => handleFormField("autoStepSize", e.target.value)}
                         className="w-full px-3 py-2 border rounded text-sm"
                         placeholder="e.g. 0.5"
                       />
@@ -748,21 +748,21 @@ function RunSolver() {
                     <div className="flex gap-3 items-center">
                       <label className="text-xs font-semibold">Sweep:</label>
                       <select
-                        value={autoMode}
-                        onChange={e => setAutoMode(e.target.value)}
+                        value={vfpData.formData.autoMode}
+                        onChange={e => handleFormField("autoMode", e.target.value)}
                         className="px-2 py-1 border rounded text-sm"
                       >
                         <option value="aoa">Angle of Attack</option>
                         <option value="mach">Mach Number</option>
                       </select>
                     </div>
-                    {autoMode === "aoa" ? (
+                    {vfpData.formData.autoMode === "aoa" ? (
                       <div>
                         <label className="block text-xs font-semibold mb-1">End Angle of Attack (°)</label>
                         <input
                           type="number"
-                          value={autoEndAoA}
-                          onChange={e => setAutoEndAoA(e.target.value)}
+                          value={vfpData.formData.autoEndAoA}
+                          onChange={e => handleFormField("autoEndAoA", e.target.value)}
                           className="w-full px-3 py-2 border rounded text-sm"
                           placeholder="e.g. 10"
                         />
@@ -772,8 +772,8 @@ function RunSolver() {
                         <label className="block text-xs font-semibold mb-1">End Mach Number</label>
                         <input
                           type="number"
-                          value={autoEndMach}
-                          onChange={e => setAutoEndMach(e.target.value)}
+                          value={vfpData.formData.autoEndMach}
+                          onChange={e => handleFormField("autoEndMach", e.target.value)}
                           className="w-full px-3 py-2 border rounded text-sm"
                           placeholder="e.g. 1.2"
                         />
@@ -801,8 +801,6 @@ function RunSolver() {
           </aside>
         </div>
       </main>
-
-      {/* FOOTER BAR */}
       <footer className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-between px-8 py-4">
           <div className="flex items-center gap-2 text-green-600 text-sm">
@@ -817,6 +815,12 @@ function RunSolver() {
               Save Draft
             </button>
             <button
+              className="px-7 py-3 bg-white border border-red-300 rounded-lg font-semibold text-red-700 hover:bg-red-50 text-lg"
+              onClick={handleReset}
+            >
+              Reset
+            </button>
+            <button
               className={`px-7 py-3 rounded-lg font-semibold text-white text-lg flex items-center gap-2 ${incomplete ? "bg-gray-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}
               onClick={handleSubmit}
               disabled={incomplete}
@@ -827,8 +831,16 @@ function RunSolver() {
           </div>
         </div>
       </footer>
+      <input
+        type="file"
+        accept=".vfp,application/json"
+        ref={importInputRef}
+        style={{ display: "none" }}
+        onChange={handleImportVFP}
+      />
     </div>
   );
 }
+
 
 export default RunSolver;

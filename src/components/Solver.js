@@ -1,14 +1,53 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { VfpDataContext } from "../components/vfpDataContext";
+import { useContext } from "react";
 
 const Solver = () => {
+    const { vfpData, setVfpData } = useContext(VfpDataContext);
     const location = useLocation();
     const navigate = useNavigate();
-    const result = location.state?.result || {};
-    const userInputs = result.user_inputs || {};
-    const uploadedFiles = result.uploaded_files || {};
+    const importInputRef = useRef();
 
-    // Helper functions
+    const [solverStatus, setSolverStatus] = useState("");
+    const [errorMsg, setErrorMsg] = useState("");
+    const [isLaunching, setIsLaunching] = useState(false);
+    const [flowVerified, setFlowVerified] = useState(false);
+
+    useEffect(() => {
+        if (vfpData.Initialisation?.["Solver Status"]) {
+            setSolverStatus(vfpData.Initialisation["Solver Status"]);
+        }
+    }, [vfpData]);
+
+    // Show Solver Status if present in vfpData (from previous launch)
+    useEffect(() => {
+        if (vfpData.Initialisation?.["Solver Status"]) {
+            setSolverStatus(vfpData.Initialisation["Solver Status"]);
+        }
+    }, [vfpData]);
+
+    // File helpers
+    const wingFiles = [
+        { label: "Geometry", type: "GeoFile" },
+        { label: "Mapping", type: "MapFile" },
+        { label: "Airfoil Data", type: "DatFile" },
+    ];
+    const tailFiles = [
+        { label: "Geometry", type: "GeoFile" },
+        { label: "Mapping", type: "MapFile" },
+        { label: "Airfoil Data", type: "DatFile" },
+    ];
+
+    const getFileName = (section, type) =>
+        vfpData.inputFiles?.[section]?.fileNames?.[type] || "";
+
+    const getBodyFiles = () =>
+        (vfpData.inputFiles?.bodyFiles?.fileNames || []).map((name, idx) => ({
+            label: `Body ${idx + 1}`,
+            name,
+        }));
+
     const formatValue = (value, type) => {
         if (value === undefined || value === null || value === "") {
             return <span className="text-gray-400 italic">Not specified</span>;
@@ -19,72 +58,70 @@ const Solver = () => {
         return value;
     };
 
-    // File categories for display (formats and sizes as per your prompt)
-    const wingFiles = [
-        { label: "Geometry", key: "wing_GEO", file: uploadedFiles.wing_GEO, format: "GEO", size: "" },
-        { label: "Mapping", key: "wing_MAP", file: uploadedFiles.wing_MAP, format: "MAP", size: "" },
-        { label: "Flow File", key: "wing_DAT", file: uploadedFiles.wing_DAT, format: "FLOW", size: "" },
-    ];
-    const tailFiles = [
-        { label: "Geometry", key: "tail_GEO", file: uploadedFiles.tail_GEO, format: "GEO", size: "" },
-        { label: "Mapping", key: "tail_MAP", file: uploadedFiles.tail_MAP, format: "MAP", size: "" },
-        { label: "Flow File", key: "tail_DAT", file: uploadedFiles.tail_DAT, format: "FLOW", size: "" },
-    ];
-    // All body files (dynamic, not static keys)
-    const bodyFiles = Object.keys(uploadedFiles)
-        .filter(key => key !== "wing_GEO" && key !== "wing_MAP" && key !== "wing_DAT"
-            && key !== "tail_GEO" && key !== "tail_MAP" && key !== "tail_DAT")
-        .map((key, idx) => ({
-            label: `Body ${idx + 1}`,
-            key,
-            file: uploadedFiles[key],
-            size: ""
-        }));
-
-    // Calculate total number of files uploaded
-    const totalFilesUploaded = Object.keys(uploadedFiles).length;
-
-    // Launch summary (dynamic)
-    const launchSummary = [
-        {
-            label: "FLOW CONDITIONS",
-            value: "Verified",
-            icon: <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
-        },
-        {
-            label: "INPUT FILES",
-            value: `${totalFilesUploaded} Files`,
-            icon: <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
-        },
-        {
-            label: "MESH QUALITY",
-            value: "Excellent",
-            icon: <svg className="w-5 h-5 text-purple-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
-        },
-        {
-            label: "EST. RUNTIME",
-            value: "~2mins",
-            icon: <svg className="w-5 h-5 text-yellow-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3" /><circle cx="12" cy="12" r="10" /></svg>
-        },
-    ];
-
-    // Top summary status
-    const summaryStatus = {
-        complete: true,
-        message: "Configuration Complete"
+    // Save config as .vfp file
+    const handleSaveConfig = () => {
+        const blob = new Blob([JSON.stringify(vfpData, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.download = (vfpData.formData?.simName || "simulation") + ".vfp";
+        a.href = url;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
-    // Verification state for flow conditions
-    const [flowVerified, setFlowVerified] = useState(false);
+    // Import VFP handler
+    const handleImportVFP = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
 
-    // Launch button handler
+            const response = await fetchAPI('/upload_vfp', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to upload and parse file');
+            }
+
+            const data = await response.json();
+
+            const normalized = {
+                formData: data.formData || {},
+                inputFiles: {
+                    wingConfig: data.inputFiles?.wingConfig || { fileNames: { GeoFile: "", MapFile: "", DatFile: "" }, fileData: {} },
+                    tailConfig: data.inputFiles?.tailConfig || { fileNames: { GeoFile: "", MapFile: "", DatFile: "" }, fileData: {} },
+                    bodyFiles: data.inputFiles?.bodyFiles || { fileNames: [], fileData: {} }
+                }
+            };
+
+            setVfpData(normalized);
+            console.log('Imported VFP case from backend');
+        } catch (err) {
+            alert("Failed to import VFP case: " + err.message);
+        } finally {
+            e.target.value = "";
+        }
+    };
+
+    useEffect(() => {
+        if (location.state?.vfpData) {
+            setVfpData(location.state.vfpData);
+        }
+    }, [location.state?.vfpData]);
+
+    console.log("Current VFP Data in Solver:", vfpData);
+
     const handleLaunch = () => {
-        // Log the HTTP request content (for demonstration)
-        console.log("Launching simulation with payload:", {
-            userInputs,
-            uploadedFiles
-        });
-        navigate("/simulation-run", { state: { result } });
+        setErrorMsg("");
+        setIsLaunching(true);
+        // Any validation logic here if needed
+        setIsLaunching(false);
+        navigate("/simulation-run");
     };
 
     return (
@@ -93,39 +130,54 @@ const Solver = () => {
             <header className="bg-white border-b border-gray-200" style={{ boxShadow: "0 2px 8px 0 rgba(16,30,54,.04)" }}>
                 <div className="max-w-7xl mx-auto flex items-center justify-between px-8 py-5">
                     <div className="flex items-center gap-3">
-                        <span className="bg-blue-600 rounded-lg p-2 flex items-center justify-center">
-                            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M2 16l10-8 10 8" /></svg>
+                        <span className="rounded-lg flex items-center justify-center">
+                            <img
+                                src="/VFP-2025/flowVFP-logo.png"
+                                alt="FlowVFP Logo"
+                                className="w-10 h-10 object-contain"
+                                style={{ minWidth: 40 }}
+                            />
                         </span>
                         <div>
-                            <div className="font-bold text-2xl text-gray-900">CFD Solver Suite</div>
-                            <div className="text-sm text-gray-500">Simulation Review</div>
+                            <div className="font-bold text-2xl text-gray-900">FlowVFP Solver</div>
+                            <div className="text-sm text-gray-500">Viscous Full Potential Flow Solver v2.0</div>
                         </div>
                     </div>
                     <div className="flex items-center gap-8">
-                        <button className="px-5 py-2 bg-gray-100 hover:bg-blue-50 rounded-lg font-semibold text-gray-700 flex items-center gap-2"
-                            onClick={() => navigate("/run-solver")}
+                        <a href="https://github.com/ramtarun02/VFP-2025" className="text-base text-gray-700 hover:text-blue-700 flex items-center gap-1">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M4 4h16v16H4z" /></svg>
+                            Documentation
+                        </a>
+                        <button
+                            type="button"
+                            className="text-base text-gray-700 hover:text-blue-700 flex items-center gap-1"
+                            onClick={handleSaveConfig}
                         >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                            Back to Setup
-                        </button>
-                        <button className="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold text-white flex items-center gap-2">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
                             Save Config
                         </button>
+                        <button
+                            type="button"
+                            className="text-base text-gray-700 hover:text-blue-700 flex items-center gap-1"
+                            onClick={() => importInputRef.current && importInputRef.current.click()}
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg>
+                            Import VFP Case
+                        </button>
+                        <input
+                            type="file"
+                            accept=".vfp,application/json"
+                            ref={importInputRef}
+                            style={{ display: "none" }}
+                            onChange={handleImportVFP}
+                        />
                         <div className="flex items-center gap-3">
-                            <span className="bg-pink-500 text-white rounded-full w-9 h-9 flex items-center justify-center font-bold text-lg">AE</span>
+                            <img src="/VFP-2025/cranfield-logo.svg" alt="Cranfield" className="w-9 h-9 rounded-full border" />
+                            <span className="text-base text-gray-800 font-semibold">Dr. Davide</span>
                         </div>
                     </div>
                 </div>
             </header>
-
-            {/* Top summary status */}
-            <div className="max-w-7xl mx-auto flex justify-end mt-8">
-                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-5 py-2">
-                    <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M9 12l2 2 4-4" /></svg>
-                    <span className="text-green-800 font-semibold">{summaryStatus.message}</span>
-                </div>
-            </div>
 
             {/* Main Content */}
             <main className="max-w-7xl mx-auto px-8 py-8">
@@ -144,7 +196,9 @@ const Solver = () => {
                                 <span className="font-semibold text-blue-900 text-lg">Flow Conditions</span>
                                 <span className="ml-2 text-xs text-blue-700">Simulation parameters</span>
                             </div>
-                            <button className="text-blue-600 text-sm font-medium flex items-center gap-1 hover:underline">
+                            <button className="text-blue-600 text-sm font-medium flex items-center gap-1 hover:underline"
+                                onClick={() => navigate("/run-solver", { state: { vfpData } })}
+                            >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg>
                                 Edit
                             </button>
@@ -156,7 +210,7 @@ const Solver = () => {
                                     Simulation Name
                                 </div>
                                 <div className="text-lg font-bold text-gray-900">
-                                    {formatValue(userInputs.simName, "text")}
+                                    {formatValue(vfpData.formData?.simName, "text")}
                                 </div>
                             </div>
                             <div>
@@ -165,7 +219,7 @@ const Solver = () => {
                                     Mach Number
                                 </div>
                                 <div className="text-lg font-bold text-gray-900">
-                                    {formatValue(userInputs.mach, "number")}
+                                    {formatValue(vfpData.formData?.mach, "number")}
                                 </div>
                             </div>
                             <div>
@@ -174,7 +228,7 @@ const Solver = () => {
                                     Angle of Attack
                                 </div>
                                 <div className="text-lg font-bold text-gray-900">
-                                    {formatValue(userInputs.aoa, "number")}°
+                                    {formatValue(vfpData.formData?.aoa, "number")}°
                                 </div>
                             </div>
                             <div>
@@ -183,7 +237,7 @@ const Solver = () => {
                                     Reynolds Number
                                 </div>
                                 <div className="text-lg font-bold text-gray-900">
-                                    {formatValue(userInputs.reynolds, "number")}
+                                    {formatValue(vfpData.formData?.reynolds, "number")}
                                 </div>
                             </div>
                         </div>
@@ -199,7 +253,9 @@ const Solver = () => {
                                 <span className="font-semibold text-purple-900 text-lg">Run Config</span>
                                 <span className="ml-2 text-xs text-purple-700">Solver settings</span>
                             </div>
-                            <button className="text-purple-600 text-sm font-medium flex items-center gap-1 hover:underline">
+                            <button className="text-purple-600 text-sm font-medium flex items-center gap-1 hover:underline"
+                                onClick={() => navigate("/run-solver", { state: { vfpData } })}
+                            >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg>
                                 Edit
                             </button>
@@ -207,47 +263,65 @@ const Solver = () => {
                         <div className="bg-white px-6 py-5">
                             <div className="mb-4">
                                 <div className="flex items-center gap-3 mb-2">
-                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${userInputs.continuation ? "bg-green-500 text-white" : "bg-gray-300 text-gray-600"}`}>
-                                        {userInputs.continuation ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg> : "○"}
+                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${vfpData.formData?.continuationRun ? "bg-green-500 text-white" : "bg-gray-300 text-gray-600"}`}>
+                                        {vfpData.formData?.continuationRun ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg> : "○"}
                                     </span>
                                     <span className="font-medium text-gray-700">Continuation Run</span>
-                                    <span className={`ml-auto text-xs font-semibold ${userInputs.continuation ? "text-green-700" : "text-gray-400"}`}>
-                                        {userInputs.continuation ? "Enabled" : "Disabled"}
+                                    <span className={`ml-auto text-xs font-semibold ${vfpData.formData?.continuationRun ? "text-green-700" : "text-gray-400"}`}>
+                                        {vfpData.formData?.continuationRun ? "Enabled" : "Disabled"}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-3 mb-2">
-                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${userInputs.excrescence ? "bg-green-500 text-white" : "bg-gray-300 text-gray-600"}`}>
-                                        {userInputs.excrescence ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg> : "○"}
+                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${vfpData.formData?.excrescence ? "bg-green-500 text-white" : "bg-gray-300 text-gray-600"}`}>
+                                        {vfpData.formData?.excrescence ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg> : "○"}
                                     </span>
                                     <span className="font-medium text-gray-700">Excrescence Run</span>
-                                    <span className={`ml-auto text-xs font-semibold ${userInputs.excrescence ? "text-green-700" : "text-gray-400"}`}>
-                                        {userInputs.excrescence ? "Enabled" : "Disabled"}
+                                    <span className={`ml-auto text-xs font-semibold ${vfpData.formData?.excrescence ? "text-green-700" : "text-gray-400"}`}>
+                                        {vfpData.formData?.excrescence ? "Enabled" : "Disabled"}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-3 mb-2">
-                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${userInputs.autoRunner ? "bg-green-500 text-white" : "bg-gray-300 text-gray-600"}`}>
-                                        {userInputs.autoRunner ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg> : "○"}
+                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${vfpData.formData?.autoRunner ? "bg-green-500 text-white" : "bg-gray-300 text-gray-600"}`}>
+                                        {vfpData.formData?.autoRunner ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg> : "○"}
                                     </span>
                                     <span className="font-medium text-gray-700">Auto Runner</span>
-                                    <span className={`ml-auto text-xs font-semibold ${userInputs.autoRunner ? "text-green-700" : "text-gray-400"}`}>
-                                        {userInputs.autoRunner ? "Enabled" : "Disabled"}
+                                    <span className={`ml-auto text-xs font-semibold ${vfpData.formData?.autoRunner ? "text-green-700" : "text-gray-400"}`}>
+                                        {vfpData.formData?.autoRunner ? "Enabled" : "Disabled"}
                                     </span>
                                 </div>
                             </div>
                             {/* Dump File */}
-                            {userInputs.continuation && userInputs.dumpName && (
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="bg-gray-200 rounded px-2 py-1 text-xs font-mono text-gray-700">
-                                        {userInputs.dumpName}
-                                    </span>
+                            {vfpData.formData?.continuationRun && (vfpData.formData?.wingDumpName || vfpData.formData?.tailDumpName) && (
+                                <div className="flex flex-col gap-1 mb-2">
+                                    {vfpData.formData?.wingDumpName && (
+                                        <span className="bg-gray-200 rounded px-2 py-1 text-xs font-mono text-gray-700">Wing Dump: {vfpData.formData.wingDumpName}</span>
+                                    )}
+                                    {vfpData.formData?.tailDumpName && (
+                                        <span className="bg-gray-200 rounded px-2 py-1 text-xs font-mono text-gray-700">Tail Dump: {vfpData.formData.tailDumpName}</span>
+                                    )}
+                                    {vfpData.formData?.continuationSplitKey && (
+                                        <span className="bg-blue-100 rounded px-2 py-1 text-xs font-mono text-blue-800">Split Key: {vfpData.formData.continuationSplitKey}{vfpData.formData?.continuationSplitFile ? ` (file: ${vfpData.formData.continuationSplitFile})` : ""}</span>
+                                    )}
                                 </div>
                             )}
-                            {/* Solver Flags */}
-                            {userInputs.solverFlags && (
-                                <div className="flex gap-2 flex-wrap mt-2">
-                                    {userInputs.solverFlags.map((flag, idx) => (
-                                        <span key={idx} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-mono">{flag}</span>
-                                    ))}
+                            {/* Auto Runner Details */}
+                            {vfpData.formData?.autoRunner && (
+                                <div className="flex flex-col gap-2 mt-2">
+                                    <div className="text-xs text-gray-500">
+                                        Step Size: <span className="font-mono">{vfpData.formData.autoStepSize || <span className="text-gray-400 italic">Not specified</span>}</span>
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                        Sweep: <span className="font-mono">{vfpData.formData.autoMode === "aoa" ? "Angle of Attack" : "Mach Number"}</span>
+                                    </div>
+                                    {vfpData.formData.autoMode === "aoa" ? (
+                                        <div className="text-xs text-gray-500">
+                                            End AoA: <span className="font-mono">{vfpData.formData.autoEndAoA || <span className="text-gray-400 italic">Not specified</span>}</span>
+                                        </div>
+                                    ) : (
+                                        <div className="text-xs text-gray-500">
+                                            End Mach: <span className="font-mono">{vfpData.formData.autoEndMach || <span className="text-gray-400 italic">Not specified</span>}</span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -264,7 +338,9 @@ const Solver = () => {
                             <span className="font-semibold text-green-900 text-lg">Input Files</span>
                             <span className="ml-2 text-xs text-green-700">Uploaded geometry and mesh files</span>
                         </div>
-                        <button className="text-green-600 text-sm font-medium flex items-center gap-1 hover:underline">
+                        <button className="text-green-600 text-sm font-medium flex items-center gap-1 hover:underline"
+                            onClick={() => navigate("/run-solver", { state: { vfpData } })}
+                        >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg>
                             Edit
                         </button>
@@ -276,27 +352,16 @@ const Solver = () => {
                                 <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M2 16l10-8 10 8" /></svg>
                                 <span className="font-bold text-blue-900">WING FILES</span>
                             </div>
-                            {/* Geometry */}
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
-                                <span className="text-xs text-gray-500 leading-tight">Geometry</span>
-                                <span className="font-mono text-gray-900 text-sm leading-tight">{uploadedFiles.wing_GEO || <span className="text-gray-400 italic">Not uploaded</span>}</span>
-                                <span className="text-xs text-gray-400 leading-tight">GEO Format</span>
-                                {uploadedFiles.wing_GEO && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
-                            </div>
-                            {/* Mapping */}
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
-                                <span className="text-xs text-gray-500 leading-tight">Mapping</span>
-                                <span className="font-mono text-gray-900 text-sm leading-tight">{uploadedFiles.wing_MAP || <span className="text-gray-400 italic">Not uploaded</span>}</span>
-                                <span className="text-xs text-gray-400 leading-tight">MAP Format</span>
-                                {uploadedFiles.wing_MAP && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
-                            </div>
-                            {/* Flow File */}
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
-                                <span className="text-xs text-gray-500 leading-tight">Flow File</span>
-                                <span className="font-mono text-gray-900 text-sm leading-tight">{uploadedFiles.wing_DAT || <span className="text-gray-400 italic">Not uploaded</span>}</span>
-                                <span className="text-xs text-gray-400 leading-tight">FLOW Format</span>
-                                {uploadedFiles.wing_DAT && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
-                            </div>
+                            {wingFiles.map(f => (
+                                <div key={f.type} className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
+                                    <span className="text-xs text-gray-500 leading-tight">{f.label}</span>
+                                    <span className="font-mono text-gray-900 text-sm leading-tight">
+                                        {getFileName("wingConfig", f.type) || <span className="text-gray-400 italic">Not uploaded</span>}
+                                    </span>
+                                    <span className="text-xs text-gray-400 leading-tight">{f.type.replace("File", "").toUpperCase()} Format</span>
+                                    {getFileName("wingConfig", f.type) && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
+                                </div>
+                            ))}
                         </div>
                         {/* Tail Files */}
                         <div>
@@ -304,27 +369,16 @@ const Solver = () => {
                                 <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
                                 <span className="font-bold text-purple-900">TAIL FILES</span>
                             </div>
-                            {/* Geometry */}
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
-                                <span className="text-xs text-gray-500 leading-tight">Geometry</span>
-                                <span className="font-mono text-gray-900 text-sm leading-tight">{uploadedFiles.tail_GEO || <span className="text-gray-400 italic">Not uploaded</span>}</span>
-                                <span className="text-xs text-gray-400 leading-tight">GEO Format</span>
-                                {uploadedFiles.tail_GEO && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
-                            </div>
-                            {/* Mapping */}
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
-                                <span className="text-xs text-gray-500 leading-tight">Mapping</span>
-                                <span className="font-mono text-gray-900 text-sm leading-tight">{uploadedFiles.tail_MAP || <span className="text-gray-400 italic">Not uploaded</span>}</span>
-                                <span className="text-xs text-gray-400 leading-tight">MAP Format</span>
-                                {uploadedFiles.tail_MAP && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
-                            </div>
-                            {/* Flow File */}
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
-                                <span className="text-xs text-gray-500 leading-tight">Flow File</span>
-                                <span className="font-mono text-gray-900 text-sm leading-tight">{uploadedFiles.tail_DAT || <span className="text-gray-400 italic">Not uploaded</span>}</span>
-                                <span className="text-xs text-gray-400 leading-tight">FLOW Format</span>
-                                {uploadedFiles.tail_DAT && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
-                            </div>
+                            {tailFiles.map(f => (
+                                <div key={f.type} className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
+                                    <span className="text-xs text-gray-500 leading-tight">{f.label}</span>
+                                    <span className="font-mono text-gray-900 text-sm leading-tight">
+                                        {getFileName("tailConfig", f.type) || <span className="text-gray-400 italic">Not uploaded</span>}
+                                    </span>
+                                    <span className="text-xs text-gray-400 leading-tight">{f.type.replace("File", "").toUpperCase()} Format</span>
+                                    {getFileName("tailConfig", f.type) && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
+                                </div>
+                            ))}
                         </div>
                         {/* Additional Bodies */}
                         <div>
@@ -332,17 +386,17 @@ const Solver = () => {
                                 <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg>
                                 <span className="font-bold text-orange-900">ADDITIONAL BODIES</span>
                             </div>
-                            {bodyFiles.length === 0 && (
+                            {getBodyFiles().length === 0 && (
                                 <div className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
                                     <span className="text-xs text-gray-500 leading-tight">No additional bodies uploaded</span>
                                 </div>
                             )}
-                            {bodyFiles.map((file, idx) => (
-                                <div key={file.key} className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
+                            {getBodyFiles().map((file, idx) => (
+                                <div key={file.name} className="bg-gray-50 rounded-lg border border-gray-200 p-1 mb-1 flex flex-col gap-0 min-h-0">
                                     <span className="text-xs text-gray-500 leading-tight">{file.label}</span>
-                                    <span className="font-mono text-gray-900 text-sm leading-tight">{file.file || <span className="text-gray-400 italic">Not uploaded</span>}</span>
-                                    <span className="text-xs text-gray-400 leading-tight">{file.format} Format</span>
-                                    {file.file && <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>}
+                                    <span className="font-mono text-gray-900 text-sm leading-tight">{file.name}</span>
+                                    <span className="text-xs text-gray-400 leading-tight">GEO/DAT Format</span>
+                                    <span className="ml-auto text-green-600"><svg className="w-4 h-4 inline" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg></span>
                                 </div>
                             ))}
                         </div>
@@ -364,32 +418,73 @@ const Solver = () => {
                             </span>
                             <div>
                                 <h2 className="text-2xl font-bold text-blue-900">Ready to Launch</h2>
-                                <div className="text-blue-900 text-lg">All configurations verified and ready for solver execution</div>
+                                {/* Solver Status message */}
+                                {solverStatus && (
+                                    <div className="mt-2 px-4 py-2 rounded-lg font-bold text-lg"
+                                        style={{
+                                            background: solverStatus.includes("Failed") ? "#fee2e2" : "#fef9c3",
+                                            color: solverStatus.includes("Failed") ? "#b91c1c" : "#92400e",
+                                            border: solverStatus.includes("Failed") ? "2px solid #f87171" : "2px solid #facc15",
+                                            boxShadow: "0 2px 8px 0 rgba(16,30,54,.08)"
+                                        }}
+                                    >
+                                        {solverStatus}
+                                    </div>
+                                )}
+                                {!solverStatus && (
+                                    <div className="text-blue-900 text-lg">
+                                        All configurations verified and ready for solver execution
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="flex flex-row w-full px-10 mb-6 gap-4">
-                            {launchSummary.map((item, idx) => (
-                                <div key={idx} className="bg-blue-200/40 rounded-xl p-6 flex flex-col items-start w-full min-w-[180px]">
-                                    <div className="flex items-center mb-2">{item.icon}<span className="text-blue-900 font-semibold">{item.label}</span></div>
-                                    <div className="text-blue-900 text-2xl font-bold">{item.label === "FLOW CONDITIONS" ? (
-                                        <span className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                checked={flowVerified}
-                                                onChange={() => setFlowVerified(v => !v)}
-                                                className="accent-blue-600 w-5 h-5"
-                                                id="flow-verify"
-                                            />
-                                            <label htmlFor="flow-verify" className="cursor-pointer select-none">Verified</label>
-                                        </span>
-                                    ) : item.value}</div>
+                            <div className="bg-blue-200/40 rounded-xl p-6 flex flex-col items-start w-full min-w-[180px]">
+                                <div className="flex items-center mb-2">
+                                    <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
+                                    <span className="text-blue-900 font-semibold">FLOW CONDITIONS</span>
                                 </div>
-                            ))}
+                                <div className="text-blue-900 text-2xl font-bold flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={flowVerified}
+                                        onChange={() => setFlowVerified(v => !v)}
+                                        className="accent-blue-600 w-5 h-5"
+                                        id="flow-verify"
+                                    />
+                                    <label htmlFor="flow-verify" className="cursor-pointer select-none">Verified</label>
+                                </div>
+                            </div>
+                            <div className="bg-blue-200/40 rounded-xl p-6 flex flex-col items-start w-full min-w-[180px]">
+                                <div className="flex items-center mb-2">
+                                    <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
+                                    <span className="text-blue-900 font-semibold">INPUT FILES</span>
+                                </div>
+                                <div className="text-blue-900 text-2xl font-bold">
+                                    {(Object.values(vfpData.inputFiles?.wingConfig?.fileNames || {}).filter(Boolean).length +
+                                        Object.values(vfpData.inputFiles?.tailConfig?.fileNames || {}).filter(Boolean).length +
+                                        (vfpData.inputFiles?.bodyFiles?.fileNames?.length || 0))} Files
+                                </div>
+                            </div>
+                            <div className="bg-blue-200/40 rounded-xl p-6 flex flex-col items-start w-full min-w-[180px]">
+                                <div className="flex items-center mb-2">
+                                    <svg className="w-5 h-5 text-purple-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
+                                    <span className="text-blue-900 font-semibold">MESH QUALITY</span>
+                                </div>
+                                <div className="text-blue-900 text-2xl font-bold">Excellent</div>
+                            </div>
+                            <div className="bg-blue-200/40 rounded-xl p-6 flex flex-col items-start w-full min-w-[180px]">
+                                <div className="flex items-center mb-2">
+                                    <svg className="w-5 h-5 text-yellow-500 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3" /><circle cx="12" cy="12" r="10" /></svg>
+                                    <span className="text-blue-900 font-semibold">EST. RUNTIME</span>
+                                </div>
+                                <div className="text-blue-900 text-2xl font-bold">~2mins</div>
+                            </div>
                         </div>
                         <div className="flex gap-4 w-full justify-end px-10 pb-8">
                             <button
                                 className="px-7 py-3 bg-white text-blue-700 rounded-xl font-semibold text-lg flex items-center gap-2 shadow hover:bg-blue-50"
-                                onClick={() => navigate("/run-solver")}
+                                onClick={() => navigate("/run-solver", { state: { vfpData } })}
                             >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                                 Back to Setup
@@ -400,12 +495,27 @@ const Solver = () => {
                                     : "bg-red-200 text-white cursor-not-allowed"
                                     }`}
                                 onClick={flowVerified ? handleLaunch : undefined}
-                                disabled={!flowVerified}
+                                disabled={!flowVerified || isLaunching}
                             >
-                                Launch Simulation
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+                                {isLaunching ? (
+                                    <>
+                                        <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
+                                        Launching...
+                                    </>
+                                ) : (
+                                    <>
+                                        Launch Simulation
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+                                    </>
+                                )}
                             </button>
                         </div>
+                        {/* Error Alert */}
+                        {errorMsg && (
+                            <div className="mt-4 px-6 py-3 bg-red-100 border border-red-400 text-red-800 rounded-lg font-semibold text-center max-w-xl">
+                                {errorMsg}
+                            </div>
+                        )}
                     </div>
                 </section>
             </main>
