@@ -230,7 +230,7 @@ def extract_polars(sim_dir):
 def run_vfp(sim_dir, vfp_data, config_key):
     logger.info("Starting VFP run for %s in %s", config_key, sim_dir)
     bat_path = os.path.join(sim_dir, "cmdvfp.bat")
-    simName = vfp_data.get("simName", "unknownSim")
+    simName = vfp_data.get("formData", {}).get("simName", "unknownSim")
     files = vfp_data["inputFiles"][config_key]["fileNames"]
     geoName = os.path.splitext(files["GeoFile"])[0]
     mapName = os.path.splitext(files["MapFile"])[0]
@@ -239,7 +239,7 @@ def run_vfp(sim_dir, vfp_data, config_key):
     excrescence = vfp_data["formData"].get("excrescence", False)
     cont_flag = "y" if continuation else "n"
     excr_flag = "y" if excrescence else "n"
-    args = [bat_path, mapName, geoName, datName, cont_flag, excr_flag, ""]
+    args = [bat_path, mapName, geoName, datName, excr_flag, cont_flag, ""]
     logger.debug("Subprocess args: %s", args)
     process = subprocess.Popen(
         args,
@@ -338,7 +338,7 @@ def run_vfp_continuation(sim_dir, vfp_data, config_key, dumpFileName):
     logger.info("Starting VFP continuation for %s using dump %s", config_key, dumpFileName)
     form_data = vfp_data.get("formData", {}) if isinstance(vfp_data, dict) else {}
     upload_id = form_data.get("uploadId")
-    simName = vfp_data.get("simName", "unknownSim")
+    simName = vfp_data.get("formData", {}).get("simName", "unknownSim")
     split_file = form_data.get("continuationSplitFile")
 
     if upload_id and split_file:
@@ -648,15 +648,26 @@ if auto_runner:
 
 elif continuation:
     logger.info("Continuation mode enabled")
+    _upload_id = vfpData["formData"].get("uploadId")
     if "wingConfig" in vfpData.get("inputFiles", {}):
-        dumpFileName = vfpData["formData"].get("wingDumpName", vfpData["formData"].get("dumpName"))
+        if _upload_id:
+            # Case 3: large file uploaded to server – dump files are in split-json
+            dumpFileName = vfpData["formData"].get("continuationSplitKey")
+        else:
+            # Case 2: small file parsed by client – full results embedded in vfpData
+            dumpFileName = vfpData["formData"].get("wingDumpName", vfpData["formData"].get("dumpName"))
         logger.info("Simulating wing continuation with dump %s", dumpFileName)
         vfpData = run_vfp_continuation(wingSimDir, vfpData, "wingConfig", dumpFileName)
     if (
         "tailConfig" in vfpData.get("inputFiles", {}) and
         vfpData["inputFiles"]["tailConfig"]["fileNames"].get("DatFile")
     ):
-        dumpFileName = vfpData["formData"].get("tailDumpName", vfpData["formData"].get("dumpName"))
+        if _upload_id:
+            # Case 3: large file uploaded to server – dump files are in split-json
+            dumpFileName = vfpData["formData"].get("continuationSplitKey")
+        else:
+            # Case 2: small file parsed by client – full results embedded in vfpData
+            dumpFileName = vfpData["formData"].get("tailDumpName", vfpData["formData"].get("dumpName"))
         vfpData = run_vfp_continuation(tailSimDir, vfpData, "tailConfig", dumpFileName)
     save_vfp_results(vfpData, simName, aoa, project_root)
 

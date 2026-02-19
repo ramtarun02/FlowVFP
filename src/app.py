@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 import tempfile
 import shutil
+import traceback
 import uuid
 import zipfile
 import io
@@ -29,7 +30,7 @@ from scipy.interpolate import griddata
 import json
 
 
-LOG_LEVEL = os.getenv("APP_LOG_LEVEL", "INFO").upper()
+LOG_LEVEL = os.getenv("APP_LOG_LEVEL", "DEBUG").upper()
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -899,16 +900,53 @@ def contour_grid():
 
 @app.route('/interpolate_parameter', methods=['POST'])
 def interpolate_parameter():
+    """
+    Interpolate a geometry parameter (Twist, Dihedral, XLE) across a span of wing sections.
+
+    Required body fields:
+        geoData       : list of section dicts
+        plotData      : current plot data list
+        parameter     : 'Twist' | 'Dihedral' | 'XLE'
+        startSection  : int index of first section
+        endSection    : int index of last section
+
+    Optional fields:
+        method        : interpolation method (default: 'linear', or 'quadratic' if aValue != 0)
+                        One of: 'linear', 'quadratic', 'elliptical', 'cosine',
+                                'power', 'schuemann', 'hermite', 'exponential'
+
+        -- method-specific parameters --
+        aValue        : float  quadratic coefficient a  (method='quadratic', default 0)
+        n             : float  power-law exponent        (method='power',     default 2.0)
+        kinkEta       : float  kink station in [0,1]     (method='schuemann', default 0.5)
+        kinkValue     : float  value at kink station     (method='schuemann', default: linear kink)
+        slopeStart    : float  tangent slope at t=0      (method='hermite',   default 0.0)
+        slopeEnd      : float  tangent slope at t=1      (method='hermite',   default 0.0)
+        decay         : float  exponential rate B        (method='exponential', default 1.0)
+    """
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-        geo_data = data.get('geoData')
-        plot_data = data.get('plotData')
-        parameter = data.get('parameter')
+
+        geo_data    = data.get('geoData')
+        plot_data   = data.get('plotData')
+        parameter   = data.get('parameter')
         start_section = data.get('startSection')
-        end_section = data.get('endSection')
-        a_value = data.get('aValue', 0)
+        end_section   = data.get('endSection')
+
+        # Method selection — legacy aValue path kept for backward compatibility
+        method  = data.get('method', None)
+        a_value = float(data.get('aValue', 0))
+
+        # Method-specific optional parameters
+        n_power     = float(data.get('n', 2.0))
+        kink_eta    = float(data.get('kinkEta', 0.5))
+        kink_value  = data.get('kinkValue', None)   # None → computed as linear kink
+        slope_start = float(data.get('slopeStart', 0.0))
+        slope_end   = float(data.get('slopeEnd',   0.0))
+        decay       = float(data.get('decay', 1.0))
+
         if not geo_data:
             return jsonify({'error': 'No geoData provided'}), 400
         if parameter not in ['Twist', 'Dihedral', 'XLE']:
@@ -917,42 +955,115 @@ def interpolate_parameter():
             return jsonify({'error': 'Invalid section range'}), 400
         if start_section >= len(geo_data) or end_section >= len(geo_data):
             return jsonify({'error': 'Section index out of range'}), 400
-        param_key_map = {
-            'Twist': 'TWIST',
-            'Dihedral': 'HSECT', 
-            'XLE': 'G1SECT'
+
+        # Determine effective method (backward-compat: non-zero aValue → quadratic)
+        if method is None:
+            method = 'quadratic' if abs(a_value) >= 1e-10 else 'linear'
+
+        VALID_METHODS = {
+            'linear', 'quadratic', 'elliptical', 'cosine',
+            'power', 'schuemann', 'hermite', 'exponential'
         }
-        geo_key = param_key_map[parameter]
+        if method not in VALID_METHODS:
+            return jsonify({
+                'error': f'Invalid method "{method}". Valid options: {sorted(VALID_METHODS)}'
+            }), 400
+
+        param_key_map = {
+            'Twist':    'TWIST',
+            'Dihedral': 'HSECT',
+            'XLE':      'G1SECT'
+        }
+        geo_key     = param_key_map[parameter]
         start_value = geo_data[start_section][geo_key]
-        end_value = geo_data[end_section][geo_key]
+        end_value   = geo_data[end_section][geo_key]
         num_sections = end_section - start_section + 1
-        if abs(a_value) < 1e-10:
-            for i in range(num_sections):
-                section_idx = start_section + i
-                if num_sections == 1:
-                    continue
-                t = i / (num_sections - 1)
-                interpolated_value = start_value + t * (end_value - start_value)
-                geo_data[section_idx][geo_key] = interpolated_value
-        else:
-            c = start_value
-            b = end_value - a_value - c
-            for i in range(num_sections):
-                section_idx = start_section + i
-                if num_sections == 1:
-                    continue
-                x = i / (num_sections - 1) if num_sections > 1 else 0
-                interpolated_value = a_value * x * x + b * x + c
-                geo_data[section_idx][geo_key] = interpolated_value
+
+        def interpolate_value(t, f0, f1):
+            """
+            Return the interpolated value for normalised span position t ∈ [0, 1].
+            f0 = value at t=0 (start_section), f1 = value at t=1 (end_section).
+            """
+            if method == 'linear':
+                # Simple linear interpolation
+                return f0 + t * (f1 - f0)
+
+            elif method == 'quadratic':
+                # f(t) = a·t² + b·t + c  with f(0)=f0, f(1)=f1
+                # a is supplied by caller as aValue; b and c are derived
+                c = f0
+                b = f1 - a_value - f0
+                return a_value * t * t + b * t + c
+
+            elif method == 'elliptical':
+                # Third-quarter ellipse shape: fast near root, flattens toward tip
+                # f(0)=f0, f(1)=f1; shape(t) = sqrt(1 - (1-t)²)
+                shape = math.sqrt(max(0.0, 1.0 - (1.0 - t) * (1.0 - t)))
+                return f0 + (f1 - f0) * shape
+
+            elif method == 'cosine':
+                # Raised cosine (full-cosine spacing): zero slope at both endpoints
+                # shape(t) = 0.5·(1 - cos(π·t))
+                shape = 0.5 * (1.0 - math.cos(math.pi * t))
+                return f0 + (f1 - f0) * shape
+
+            elif method == 'power':
+                # f(t) = f0 + (f1-f0)·t^n
+                # n < 1 → root-loaded; n > 1 → tip-loaded; n=1 → linear
+                return f0 + (f1 - f0) * (t ** n_power)
+
+            elif method == 'schuemann':
+                # Piecewise linear with kink at kink_eta
+                # Inner panel  (0 … kink_eta): linear from f0 to kink_value
+                # Outer panel  (kink_eta … 1): linear from kink_value to f1
+                kv = float(kink_value) if kink_value is not None \
+                     else f0 + (f1 - f0) * kink_eta
+                if t <= kink_eta:
+                    local_t = (t / kink_eta) if kink_eta > 1e-10 else 0.0
+                    return f0 + (kv - f0) * local_t
+                else:
+                    span_outer = 1.0 - kink_eta
+                    local_t = ((t - kink_eta) / span_outer) if span_outer > 1e-10 else 1.0
+                    return kv + (f1 - kv) * local_t
+
+            elif method == 'hermite':
+                # Cubic Hermite spline with user-specified end-point tangents
+                # slopeStart / slopeEnd are in the same units as the parameter
+                # (e.g. degrees per normalised span for Twist).
+                # Basis functions: h00, h10, h01, h11
+                t2 = t * t
+                t3 = t2 * t
+                h00 =  2*t3 - 3*t2 + 1
+                h10 =    t3 - 2*t2 + t
+                h01 = -2*t3 + 3*t2
+                h11 =    t3 -   t2
+                return h00 * f0 + h10 * slope_start + h01 * f1 + h11 * slope_end
+
+            elif method == 'exponential':
+                # f(t) = A·e^(B·t) + C  with f(0)=f0, f(1)=f1, B=decay
+                # Falls back to linear when decay ≈ 0
+                if abs(decay) < 1e-10:
+                    return f0 + t * (f1 - f0)
+                exp_d = math.exp(decay)
+                A = (f1 - f0) / (exp_d - 1.0)
+                C = f0 - A
+                return A * math.exp(decay * t) + C
+
+        # Apply interpolation across the section range
+        for i in range(num_sections):
+            section_idx = start_section + i
+            if num_sections == 1:
+                continue
+            t = i / (num_sections - 1)
+            geo_data[section_idx][geo_key] = interpolate_value(t, start_value, end_value)
+
+        # Keep XTE consistent with XLE when moving leading edge
         if parameter == 'XLE':
             for i in range(start_section, end_section + 1):
                 current_chord = geo_data[i]['G2SECT'] - geo_data[i]['G1SECT']
                 geo_data[i]['G2SECT'] = geo_data[i]['G1SECT'] + current_chord
-        import copy
+
         updated_plot_data = rG.airfoils(copy.deepcopy(geo_data))
-        if parameter == 'Twist':
-            for section_idx in range(start_section, end_section + 1):
-                current_twist = geo_data[section_idx]['TWIST']
         if parameter == 'Dihedral':
             pass
         return jsonify({
@@ -960,7 +1071,6 @@ def interpolate_parameter():
             'updatedPlotData': updated_plot_data
         })
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
@@ -1136,70 +1246,113 @@ def compute():
         data = request.get_json()
         if data is None:
             return jsonify({"error": "Invalid or missing JSON"}), 400
-        A = float(data["A"])
-        bOverD = float(data["bOverD"])
-        cOverD = float(data["cOverD"])
-        alpha0 = float(data["alpha0"])
-        N = float(data["N"])
-        NSPSW = float(data["NSPSW"])
-        ZPD = float(data["ZPD"])
-        IW = float(data["IW"])
-        CT = float(data["CTIP"])
-        NELMNT = float(data["NELMNT"])
-        CL0 = np.array(data["CL0"], dtype=float)
-        CD0 = np.array(data["CD0"], dtype=float)
+        def r5(val: float) -> float:
+            return round(float(val), 5)
+        
+        def r3(val: float) -> float:
+            return round(float(val), 3)
+        
+        def arr3(seq) -> np.ndarray:
+            return np.round(np.array(seq, dtype=float), 3)
+
+        def arr5(seq) -> np.ndarray:
+            return np.round(np.array(seq, dtype=float), 5)
+
+        # Round all scalar inputs to five decimals before computing
+        A = r5(data["A"])
+        bOverD = r5(data["bOverD"])
+        cOverD = r5(data["cOverD"])
+        alpha0 = r5(data["alpha0"])
+        N = r5(data["N"])
+        NSPSW = r5(data["NSPSW"])
+        ZPD = r5(data["ZPD"])
+        IW = r5(data["IW"])
+        CT = r5(data["CTIP"])
+        NELMNT = r5(data["NELMNT"])
+
+        if NELMNT != 0:
+            logger.warning("prowim-compute unsupported NELMNT=%s (only 0 supported)", NELMNT)
+            return jsonify({
+                "error": "NELMNT must be 0; non-zero values are not supported in this version"
+            }), 400
+
+        # Round array inputs to five decimals before computing
+        CL0 = arr3(data["CL0"])
+        CD0 = arr3(data["CD0"])
+        KS00 = arr3(data["KS00"])
+        ALFAWI = arr5(data["ALFAWI"])
+
         logger.debug("prowim compute CD0 length=%d", len(CD0))
-        KS00 = np.array(data["KS00"], dtype=float)
-        ALFAWI = np.array(data["ALFAWI"], dtype=float)
-        KS0D = compute_KS0D(CL0, CD0, A)
-        TS0D = compute_TS0D(CL0, CD0, A)
+
+        KS0D = np.round(compute_KS0D(CL0, CD0, A), 3)
+        TS0D = np.round(compute_TS0D(CL0, CD0, A), 5)
         logger.debug("Computed TS0D len=%d", len(TS0D))
-        Hzp = round((1 - 2.5 * abs(ZPD)), 2)
-        Kdc = round((-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038), 2)
-        Izp = round((455.93 * ZPD ** 6 - 10.67 * ZPD**5 - 87.221 * ZPD**4 -
-               3.2742 * ZPD**3 + 0.2309 * ZPD**2 + 0.0418 * ZPD + 1.0027))
-        TS0Ap0_1d = -2 * Kdc * alpha0
-        TS10 = Hzp * TS0Ap0_1d + 1.15 * Kdc * Izp * IW + (ALFAWI - IW)
-        theta_s = TS0D + (CT + 0.3 * np.sin(np.radians(float(CT)**1.36))) * (TS10 - TS0D)
+
+        Hzp = r5(1 - 2.5 * abs(ZPD))
+        Kdc = r5((-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038))
+        logger.debug("Computed Kdc=%s", Kdc)
+        Izp = r5(455.93 * ZPD ** 6 - 10.67 * ZPD**5 - 87.221 * ZPD**4 -
+                 3.2742 * ZPD**3 + 0.2309 * ZPD**2 + 0.0418 * ZPD + 1.0027)
+        logger.debug("Computed Izp=%s", Izp)
+        TS0Ap0_1d = r5(-2 * Kdc * alpha0)
+        TS10 = np.round(Hzp * TS0Ap0_1d + 1.15 * Kdc * Izp * IW + (ALFAWI - IW), 5)
+        theta_s = np.round(
+            TS0D + (CT + 0.3 * np.sin(np.radians(float(CT) ** 1.36))) * (TS10 - TS0D),
+            5
+        )
         logger.debug("Computed theta_s len=%d", len(theta_s))
-        ks = KS0D + CT * (KS00 - KS0D)
-        r = math.sqrt(1 - CT)
-        theta_s = np.array(theta_s, dtype=float)
-        ks = np.array(ks, dtype=float)
+
+        ks = np.round(KS0D, 3)
+        r = r5(math.sqrt(1 - CT))
         theta_rad = np.radians(theta_s)
         TS0D_rad = np.radians(TS0D)
-        alpha_p = ALFAWI - IW
-        CZ = ((1 + r) * (1 - ks) * np.sin(theta_rad) +
-              ((2 / N) * bOverD ** 2 - (1 + r)) * r ** 2 *
-              (1 - KS00) * np.sin(TS0D_rad))
-        CZwf = CZ - CT * np.sin(np.radians(alpha_p))
-        CZDwf = CZwf * NSPSW / (1 - CT)
-        CZD = CZ * NSPSW / (1 - CT)
-        CX = ((1 + r) * ((1 - ks) * np.cos(theta_rad) - r) +
-              ((2 / N) * bOverD ** 2 - (1 + r)) * r ** 2 *
-              ((1 - KS00) * np.cos(TS0D_rad) - 1))
-        CXwf = CX - CT * np.cos(np.radians(alpha_p))
-        CXDwf = CXwf * NSPSW / (1 - CT)
-        CXD = (CX * NSPSW / (1 - CT))
+        alpha_p = np.round(ALFAWI - IW, 5)
+
+        CZ = np.round(
+            ((1 + r) * (1 - ks) * np.sin(theta_rad) +
+             ((2 / N) * bOverD ** 2 - (1 + r)) * r ** 2 *
+             (1 - ks) * np.sin(TS0D_rad)),
+            3
+        )
+        CZwf = np.round(CZ - CT * np.sin(np.radians(alpha_p)), 3)
+        CZDwf = np.round(CZwf * NSPSW / (1 - CT), 3)
+        CZD = np.round(CZ * NSPSW / (1 - CT), 3)
+
+        CX = np.round(
+            ((1 + r) * ((1 - ks) * np.cos(theta_rad) - r) +
+             ((2 / N) * bOverD ** 2 - (1 + r)) * r ** 2 *
+             ((1 - ks) * np.cos(TS0D_rad) - 1)),
+            3
+        )
+        CXwf = np.round(CX - CT * np.cos(np.radians(alpha_p)), 3)
+        CXDwf = np.round(CXwf * NSPSW / (1 - CT), 3)
+        CXD = np.round(CX * NSPSW / (1 - CT), 3)
+
+        logger.debug("Computed KS0D", ks.tolist())
+
         logger.debug("Computed CX len=%d", len(CX))
         logger.debug("Computed CXwf len=%d", len(CXwf))
         logger.debug("Computed CXDwf len=%d", len(CXDwf))
         logger.debug("Computed CXD len=%d", len(CXD))
+        logger.debug("CZDwf results=%s", CZDwf.tolist())
+        logger.debug("CXDwf results=%s", CXDwf.tolist())
+
+
         results = []
         for i in range(len(CL0)):
             result_item = {
-                "KS0D": float(KS0D[i]) if isinstance(KS0D[i], np.floating) else float(KS0D[i]),
-                "TS0D": float(TS0D[i]) if isinstance(TS0D[i], np.floating) else float(TS0D[i]),
-                "theta_s": float(theta_s[i]) if isinstance(theta_s[i], np.floating) else float(theta_s[i]),
-                "ks": float(ks[i]) if isinstance(ks[i], np.floating) else float(ks[i]),
-                "CZ": float(CZ[i]) if isinstance(CZ[i], np.floating) else float(CZ[i]),
-                "CZwf": float(CZwf[i]) if isinstance(CZwf[i], np.floating) else float(CZwf[i]),
-                "CZDwf": float(CZDwf[i]) if isinstance(CZDwf[i], np.floating) else float(CZDwf[i]),
-                "CZD": float(CZD[i]) if isinstance(CZD[i], np.floating) else float(CZD[i]),
-                "CX": float(CX[i]) if isinstance(CX[i], np.floating) else float(CX[i]),
-                "CXwf": float(CXwf[i]) if isinstance(CXwf[i], np.floating) else float(CXwf[i]),
-                "CXDwf": float(CXDwf[i]) if isinstance(CXDwf[i], np.floating) else float(CXDwf[i]),
-                "CXD": float(CXD[i]) if isinstance(CXD[i], np.floating) else float(CXD[i])
+                "KS0D": r5(KS0D[i]),
+                "TS0D": r5(TS0D[i]),
+                "theta_s": r5(theta_s[i]),
+                "ks": r5(ks[i]),
+                "CZ": r5(CZ[i]),
+                "CZwf": r5(CZwf[i]),
+                "CZDwf": r5(CZDwf[i]),
+                "CZD": r5(CZD[i]),
+                "CX": r5(CX[i]),
+                "CXwf": r5(CXwf[i]),
+                "CXDwf": r5(CXDwf[i]),
+                "CXD": r5(CXD[i])
             }
             results.append(result_item)
         response = {"results": results}
