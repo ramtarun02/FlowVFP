@@ -9,6 +9,7 @@ export const VfpDataProvider = ({ children }) => {
       version: "1.0",
       module: "FlowVFP CFD",
     },
+    results: null,
     formData: {
       simName: "",
       mach: "",

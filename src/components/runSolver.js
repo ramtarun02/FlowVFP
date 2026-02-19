@@ -4,6 +4,7 @@ import { fetchAPI } from "../utils/fetch";
 import { VfpDataContext } from "./vfpDataContext";
 
 // Helpers to avoid recreating default shapes
+const FILE_SIZE_THRESHOLD_BYTES = 85 * 1024 * 1024; // 85 MB
 const baseFormData = {
   simName: "",
   mach: "",
@@ -58,6 +59,74 @@ const normalizeVfpPayload = (parsed) => {
   const resultsNode = parsed?.results || parsed?.output || parsed?.analysis || parsed?.resultsSection || null;
 
   return { mergedForm, normalizedInput, resultsNode };
+};
+
+const extractContinuationFromManifest = (manifest = {}) => {
+  const keyFileMap = {};
+  const keys = Array.isArray(manifest?.splitNodes)
+    ? manifest.splitNodes
+        .map(node => {
+          if (node?.key) {
+            keyFileMap[node.key] = node.file || "";
+            return node.key;
+          }
+          return null;
+        })
+        .filter(Boolean)
+    : [];
+  return { keys, map: keyFileMap };
+};
+
+const extractContinuationFromResults = (resultsNode = {}) => {
+  const gather = (config) => {
+    const keys = [];
+    const map = {};
+    const flows = config?.flows ?? config?.flowKeys ?? config?.flowkeys ?? config?.flowList ?? config?.flow_list;
+
+    if (Array.isArray(flows)) {
+      flows.forEach(flow => {
+        if (typeof flow === "string") {
+          keys.push(flow);
+          return;
+        }
+        if (flow && typeof flow === "object") {
+          const key = flow.key || flow.id || flow.name || flow.flowKey || flow.flow;
+          if (key) {
+            keys.push(key);
+            const file = flow.file || flow.dumpFile || flow.path || flow.filename || flow.name || "";
+            map[key] = file;
+          }
+        }
+      });
+    } else if (flows && typeof flows === "object") {
+      Object.entries(flows).forEach(([key, value]) => {
+        if (!key) return;
+        keys.push(key);
+        if (typeof value === "string") {
+          map[key] = value;
+        } else if (value && typeof value === "object") {
+          const file = value.file || value.dumpFile || value.path || value.filename || value.name || "";
+          map[key] = file;
+        }
+      });
+    }
+
+    return { keys, map };
+  };
+
+  const wing = gather(resultsNode?.wingConfig);
+  const tail = gather(resultsNode?.tailConfig);
+  const keys = Array.from(new Set([...(wing.keys || []), ...(tail.keys || [])]));
+  const map = { ...(wing.map || {}), ...(tail.map || {}) };
+  return { keys, map };
+};
+
+const mergeContinuationSources = (manifest, resultsNode) => {
+  const fromManifest = extractContinuationFromManifest(manifest);
+  const fromResults = extractContinuationFromResults(resultsNode);
+  const map = { ...(fromResults.map || {}), ...(fromManifest.map || {}) };
+  const keys = Array.from(new Set([...(fromManifest.keys || []), ...(fromResults.keys || [])]));
+  return { keys, map };
 };
 
 function RunSolver() {
@@ -204,6 +273,36 @@ function RunSolver() {
     if (!file) return;
 
     try {
+      if (file.size <= FILE_SIZE_THRESHOLD_BYTES) {
+        const text = await file.text();
+        const parsedFile = JSON.parse(text);
+        const parsedMain = typeof parsedFile?.main === "string"
+          ? JSON.parse(parsedFile.main)
+          : (parsedFile?.main || parsedFile);
+        const manifest = parsedFile?.manifest || {};
+
+        const { mergedForm, normalizedInput, resultsNode } = normalizeVfpPayload(parsedMain);
+        const { keys, map } = mergeContinuationSources(manifest, resultsNode);
+
+        setContinuationKeys(keys);
+        setContinuationKeyToFile(map);
+        setContinuationDropdownOpen(false);
+        setUploadedCaseName(file.name);
+
+        setVfpData(prev => ({
+          ...prev,
+          formData: {
+            ...mergedForm,
+            uploadId: parsedFile?.uploadId || "",
+            continuationSplitKey: "",
+            continuationSplitFile: ""
+          },
+          inputFiles: normalizedInput,
+          results: resultsNode || parsedFile?.results || null
+        }));
+        return;
+      }
+
       const formData = new FormData();
       formData.append("file", file);
 
@@ -220,18 +319,11 @@ function RunSolver() {
 
       const parsedMain = typeof data?.main === "string" ? JSON.parse(data.main) : (data?.main || {});
       const manifest = data?.manifest || {};
-      const keyFileMap = {};
-      (manifest?.splitNodes || []).forEach(node => {
-        if (node?.key) keyFileMap[node.key] = node.file || "";
-      });
-      const splitKeys = Array.isArray(manifest?.splitNodes)
-        ? manifest.splitNodes.map(node => node?.key).filter(Boolean)
-        : [];
+      const { mergedForm, normalizedInput, resultsNode } = normalizeVfpPayload(parsedMain);
+      const { keys, map } = mergeContinuationSources(manifest, resultsNode);
 
-      const { mergedForm, normalizedInput } = normalizeVfpPayload(parsedMain);
-
-      setContinuationKeys(splitKeys);
-      setContinuationKeyToFile(keyFileMap);
+      setContinuationKeys(keys);
+      setContinuationKeyToFile(map);
       setContinuationDropdownOpen(false);
       setUploadedCaseName(data?.uploadedFileName || file.name);
 
@@ -243,7 +335,8 @@ function RunSolver() {
           continuationSplitKey: "",
           continuationSplitFile: ""
         },
-        inputFiles: normalizedInput
+        inputFiles: normalizedInput,
+        results: resultsNode || data?.results || null
       }));
     } catch (err) {
       console.error("Import error:", err);
@@ -256,7 +349,8 @@ function RunSolver() {
   const handleReset = () => {
     setVfpData({
       formData: { ...baseFormData },
-      inputFiles: baseInputFiles()
+      inputFiles: baseInputFiles(),
+      results: null
     });
     setContinuationKeys([]);
     setContinuationKeyToFile({});

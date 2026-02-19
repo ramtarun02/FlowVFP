@@ -5,7 +5,6 @@ import Plot from 'react-plotly.js';
 import { useSimulationData } from "../components/SimulationDataContext";
 
 import { fetchAPI } from '../utils/fetch';
-import { add } from "numeric";
 
 function computeKS0D(CL0, CD0, A) {
   if (!A || !CL0 || !CD0) return "";
@@ -57,16 +56,16 @@ function PropellerWingForm() {
   }, [simulationData, polarsFromCase]);
 
   const [formData, setFormData] = useState({
-    A: "8",
-    bOverD: "6.0",
-    cOverD: "0.75",
+    A: "11",
+    bOverD: "6.39",
+    cOverD: "0.71",
     alpha0: "-2",
-    N: "4",
-    NSPSW: "0.698",
+    N: "2",
+    NSPSW: "0.4225",
     ZPD: "-0.1",
-    IW: "2",
+    IW: "-2",
     NELMNT: "0",
-    CTIP: "0.3",
+    CTIP: "0.15",
     NAW: "1",
     ALFAWI: "5",
     CL0: "0.5",
@@ -74,8 +73,8 @@ function PropellerWingForm() {
     additionalDrag: "0.0",
     KS00: "0.001",
     TS00: "2.25",
-    propLocation: "0.5",
-    D: "3"
+    propLocation: "0.35",
+    D: "3.35"
   });
 
   const [panelWidth, setPanelWidth] = useState(500);
@@ -320,9 +319,11 @@ function PropellerWingForm() {
         clIndex = headers.findIndex(h =>
           h.includes('cl') || h.toLowerCase() === 'lift'
         );
-        cdIndex = headers.findIndex(h =>
-          h.includes('cdtotibe') || h.toLowerCase() === 'drag'
+        const cdGenericIndex = headers.findIndex(h =>
+          h === 'cd' || h === 'cd0' || h.includes('drag')
         );
+        const cdTotIndex = headers.findIndex(h => h.includes('cdtotvfp'));
+        cdIndex = cdGenericIndex !== -1 ? cdGenericIndex : cdTotIndex;
         if (alphaIndex !== -1 && clIndex !== -1 && cdIndex !== -1) {
           headerIndex = i;
           break;
@@ -390,19 +391,25 @@ function PropellerWingForm() {
   };
 
   useEffect(() => {
+    const addDrag = Number(arrayInputs.additionalDrag) || 0;
+    const baseCd0 = arrayInputs.CD0 || [];
+    const cdWithDrag = baseCd0.map(cd0 => (Number(cd0) || 0) + addDrag);
+
+    setCd0WithDrag(cdWithDrag);
+
     const A = parseFloat(formData.A);
-    if (A && arrayInputs.CL0.length > 0 && arrayInputs.CD0.length > 0) {
+    if (A && arrayInputs.CL0.length > 0 && cdWithDrag.length > 0) {
       const newKS00 = arrayInputs.CL0.map((cl0, index) => {
-        const cd0 = arrayInputs.CD0[index] || arrayInputs.CD0[0];
+        const cd0 = cdWithDrag[index] !== undefined ? cdWithDrag[index] : cdWithDrag[0];
         return parseFloat(computeKS0D(cl0, cd0, A));
       });
       const newTS00 = arrayInputs.CL0.map((cl0, index) => {
-        const cd0 = arrayInputs.CD0[index] || arrayInputs.CD0[0];
+        const cd0 = cdWithDrag[index] !== undefined ? cdWithDrag[index] : cdWithDrag[0];
         return parseFloat(computeTS0D(cl0, cd0, A));
       });
       setArrayInputs(prev => ({ ...prev, KS00: newKS00, TS00: newTS00 }));
     }
-  }, [formData.A, arrayInputs.CL0, arrayInputs.CD0]);
+  }, [formData.A, arrayInputs.CL0, arrayInputs.CD0, arrayInputs.additionalDrag]);
 
   const [result, setResult] = useState(null);
 
@@ -437,17 +444,21 @@ function PropellerWingForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const addDrag = Number(formData.additionalDrag) || 0;
-      const cd0WithDragArr = (arrayInputs.CD0 || []).map(cd0 => Number(cd0 || 0) + addDrag);
-      setCd0WithDrag(cd0WithDragArr); // <-- Save for display/export
+      const addDrag = Number(arrayInputs.additionalDrag) || 0;
+      const fallbackCd0 = (arrayInputs.CD0 || []).map(cd0 => (Number(cd0) || 0) + addDrag);
+      const cd0ForSubmit = cd0WithDrag.length ? cd0WithDrag : fallbackCd0;
+
+      console.log("Submitting with CD0 + Additional Drag:", cd0ForSubmit);
       const payload = {
         ...formData,
         ALFAWI: arrayInputs.ALFAWI,
         CL0: arrayInputs.CL0,
-        CD0: cd0WithDragArr,
+        CD0: cd0ForSubmit,
         KS00: arrayInputs.KS00,
         TS00: arrayInputs.TS00
       };
+      console.log("Submitting payload:", payload);      
+      
       const response = await fetchAPI("/prowim-compute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

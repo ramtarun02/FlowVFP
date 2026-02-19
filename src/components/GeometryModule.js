@@ -48,7 +48,14 @@ function GeometryModule() {
     selectedParameter: 'Twist',
     startSection: 1,
     endSection: 1,
-    aValue: 0
+    method: 'linear',
+    aValue: 0,
+    n: 2.0,
+    kinkEta: 0.5,
+    kinkValue: '',
+    slopeStart: 0.0,
+    slopeEnd: 0.0,
+    decay: 1.0
   });
 
   // --- Side Panel State ---
@@ -404,9 +411,12 @@ function GeometryModule() {
   };
 
   const handleImproveSettingsChange = (field, value) => {
+    const floatFields = ['aValue', 'n', 'kinkEta', 'kinkValue', 'slopeStart', 'slopeEnd', 'decay'];
     setImproveSettings(prev => ({
       ...prev,
-      [field]: field === 'aValue' ? parseFloat(value) || 0 : value
+      [field]: floatFields.includes(field)
+        ? (value === '' ? '' : parseFloat(value) || 0)
+        : value
     }));
   };
 
@@ -415,7 +425,8 @@ function GeometryModule() {
       alert('Please select a file first');
       return;
     }
-    const { selectedParameter, startSection, endSection, aValue } = improveSettings;
+    const { selectedParameter, startSection, endSection, method,
+      aValue, n, kinkEta, kinkValue, slopeStart, slopeEnd, decay } = improveSettings;
     if (startSection < 1 || endSection < 1 || startSection > endSection) {
       alert('Please enter valid start and end sections');
       return;
@@ -426,7 +437,25 @@ function GeometryModule() {
       alert(`Section numbers must be between 1 and ${numSections}`);
       return;
     }
-    const numericAValue = typeof aValue === 'number' ? aValue : parseFloat(aValue) || 0;
+
+    // Build method-specific extra params
+    const methodParams = {};
+    if (method === 'quadratic') {
+      methodParams.aValue = typeof aValue === 'number' ? aValue : parseFloat(aValue) || 0;
+    } else if (method === 'power') {
+      methodParams.n = typeof n === 'number' ? n : parseFloat(n) ?? 2.0;
+    } else if (method === 'schuemann') {
+      methodParams.kinkEta = typeof kinkEta === 'number' ? kinkEta : parseFloat(kinkEta) ?? 0.5;
+      if (kinkValue !== '') {
+        methodParams.kinkValue = typeof kinkValue === 'number' ? kinkValue : parseFloat(kinkValue);
+      }
+    } else if (method === 'hermite') {
+      methodParams.slopeStart = typeof slopeStart === 'number' ? slopeStart : parseFloat(slopeStart) ?? 0.0;
+      methodParams.slopeEnd = typeof slopeEnd === 'number' ? slopeEnd : parseFloat(slopeEnd) ?? 0.0;
+    } else if (method === 'exponential') {
+      methodParams.decay = typeof decay === 'number' ? decay : parseFloat(decay) ?? 1.0;
+    }
+    console.log('Performing interpolation with params:', {method, selectedParameter, startSection, endSection, ...methodParams});
     try {
       const response = await fetchAPI('/interpolate_parameter', {
         method: 'POST',
@@ -437,7 +466,8 @@ function GeometryModule() {
           parameter: selectedParameter,
           startSection: startSection - 1,
           endSection: endSection - 1,
-          aValue: numericAValue
+          method: method,
+          ...methodParams
         }),
       });
       const { updatedGeoData, updatedPlotData } = await response.json();
@@ -1325,20 +1355,123 @@ function GeometryModule() {
                     </select>
                   </div>
                 </div>
-                <div className="text-center mb-3 p-2 bg-gray-50 border border-gray-200 rounded-md">
-                  <span className="font-mono text-xs text-gray-600 font-medium">(y = ax² + bx + c)</span>
+                {/* Method dropdown */}
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Method:</label>
+                  <select
+                    value={improveSettings.method}
+                    onChange={(e) => handleImproveSettingsChange('method', e.target.value)}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="linear">Linear</option>
+                    <option value="quadratic">Quadratic</option>
+                    <option value="elliptical">Elliptical</option>
+                    <option value="cosine">Cosine</option>
+                    <option value="power">Power</option>
+                    <option value="schuemann">Schuemann</option>
+                    <option value="hermite">Hermite</option>
+                    <option value="exponential">Exponential</option>
+                  </select>
                 </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-gray-700">a =</label>
-                  <input
-                    type="number"
-                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    value={improveSettings.aValue}
-                    onChange={(e) => handleImproveSettingsChange('aValue', e.target.value)}
-                    step="0.5"
-                    placeholder='0.0'
-                  />
-                </div>
+
+                {/* Method-specific params */}
+                {improveSettings.method === 'quadratic' && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-gray-700 whitespace-nowrap">a (coeff):</label>
+                    <input
+                      type="number"
+                      className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      value={improveSettings.aValue}
+                      onChange={(e) => handleImproveSettingsChange('aValue', e.target.value)}
+                      step="0.1"
+                      placeholder="0"
+                    />
+                  </div>
+                )}
+
+                {improveSettings.method === 'power' && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-gray-700 whitespace-nowrap">n (exponent):</label>
+                    <input
+                      type="number"
+                      className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      value={improveSettings.n}
+                      onChange={(e) => handleImproveSettingsChange('n', e.target.value)}
+                      step="0.1"
+                      placeholder="2.0"
+                    />
+                  </div>
+                )}
+
+                {improveSettings.method === 'schuemann' && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-gray-700 whitespace-nowrap">Kink η [0,1]:</label>
+                      <input
+                        type="number"
+                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={improveSettings.kinkEta}
+                        onChange={(e) => handleImproveSettingsChange('kinkEta', e.target.value)}
+                        step="0.05"
+                        min="0"
+                        max="1"
+                        placeholder="0.5"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-gray-700 whitespace-nowrap">Kink value:</label>
+                      <input
+                        type="number"
+                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={improveSettings.kinkValue}
+                        onChange={(e) => handleImproveSettingsChange('kinkValue', e.target.value)}
+                        step="0.1"
+                        placeholder="auto"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {improveSettings.method === 'hermite' && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-gray-700 whitespace-nowrap">Slope (root):</label>
+                      <input
+                        type="number"
+                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={improveSettings.slopeStart}
+                        onChange={(e) => handleImproveSettingsChange('slopeStart', e.target.value)}
+                        step="0.1"
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-gray-700 whitespace-nowrap">Slope (tip):</label>
+                      <input
+                        type="number"
+                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={improveSettings.slopeEnd}
+                        onChange={(e) => handleImproveSettingsChange('slopeEnd', e.target.value)}
+                        step="0.1"
+                        placeholder="0.0"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {improveSettings.method === 'exponential' && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-gray-700 whitespace-nowrap">Decay (B):</label>
+                    <input
+                      type="number"
+                      className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      value={improveSettings.decay}
+                      onChange={(e) => handleImproveSettingsChange('decay', e.target.value)}
+                      step="0.1"
+                      placeholder="1.0"
+                    />
+                  </div>
+                )}
               </div>
               <div className="flex justify-center gap-2">
                 <button
