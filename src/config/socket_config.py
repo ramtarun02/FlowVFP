@@ -39,7 +39,11 @@ class SocketConfig:
         self.socketio = SocketIO(
             app,
             manage_session=True,
-            cors_allowed_origins="*",
+            cors_allowed_origins=[
+                'https://ramtarun02.github.io',
+                'http://localhost:3000',
+                'http://127.0.0.1:3000',
+            ],
             ping_timeout=300,  # 5 minutes
             ping_interval=25,  # 25 seconds
             logger=socketio_logger,

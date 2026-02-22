@@ -132,7 +132,10 @@ except ImportError as e:
 current_process = None
 
 app = Flask(__name__)
-CORS(app, origins=['https://ramtarun02.github.io', 'http://localhost:3000'])
+CORS(app, resources={
+    r"/socket.io/*": {"origins": "*"},
+    r"/*": {"origins": ['https://ramtarun02.github.io', 'http://localhost:3000', 'http://127.0.0.1:3000']}
+})
 
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 6 GB
@@ -1246,29 +1249,38 @@ def compute():
         data = request.get_json()
         if data is None:
             return jsonify({"error": "Invalid or missing JSON"}), 400
-        def r5(val: float) -> float:
-            return round(float(val), 5)
-        
+
+        # r2 / arr2 : angles (degrees) – rounded to 2 dp before any computation
+        # r3 / arr3 : dimensionless/physical values – rounded to 3 dp
+        # r5        : outputs only – rounded to 5 dp
+        def r2(val: float) -> float:
+            return round(float(val), 2)
+
         def r3(val: float) -> float:
             return round(float(val), 3)
-        
+
+        def r5(val: float) -> float:
+            return round(float(val), 5)
+
+        def arr2(seq) -> np.ndarray:
+            return np.round(np.array(seq, dtype=float), 2)
+
         def arr3(seq) -> np.ndarray:
             return np.round(np.array(seq, dtype=float), 3)
 
-        def arr5(seq) -> np.ndarray:
-            return np.round(np.array(seq, dtype=float), 5)
+        # Non-angle scalar inputs → 3 dp
+        A      = r3(data["A"])
+        bOverD = r3(data["bOverD"])
+        cOverD = r3(data["cOverD"])
+        N      = r3(data["N"])
+        NSPSW  = r3(data["NSPSW"])
+        ZPD    = r3(data["ZPD"])
+        CT     = r3(data["CTIP"])
+        NELMNT = r3(data["NELMNT"])
 
-        # Round all scalar inputs to five decimals before computing
-        A = r5(data["A"])
-        bOverD = r5(data["bOverD"])
-        cOverD = r5(data["cOverD"])
-        alpha0 = r5(data["alpha0"])
-        N = r5(data["N"])
-        NSPSW = r5(data["NSPSW"])
-        ZPD = r5(data["ZPD"])
-        IW = r5(data["IW"])
-        CT = r5(data["CTIP"])
-        NELMNT = r5(data["NELMNT"])
+        # Angle scalar inputs → 2 dp
+        alpha0 = r2(data["alpha0"])
+        IW     = r2(data["IW"])
 
         if NELMNT != 0:
             logger.warning("prowim-compute unsupported NELMNT=%s (only 0 supported)", NELMNT)
@@ -1276,37 +1288,52 @@ def compute():
                 "error": "NELMNT must be 0; non-zero values are not supported in this version"
             }), 400
 
-        # Round array inputs to five decimals before computing
-        CL0 = arr3(data["CL0"])
-        CD0 = arr3(data["CD0"])
+        # Non-angle array inputs → 3 dp
+        CL0  = arr3(data["CL0"])
+        CD0  = arr3(data["CD0"])
         KS00 = arr3(data["KS00"])
-        ALFAWI = arr5(data["ALFAWI"])
+
+        # Angle array inputs → 2 dp
+        ALFAWI = arr2(data["ALFAWI"])
 
         logger.debug("prowim compute CD0 length=%d", len(CD0))
 
+        # KS0D is dimensionless → 3 dp
         KS0D = np.round(compute_KS0D(CL0, CD0, A), 3)
-        TS0D = np.round(compute_TS0D(CL0, CD0, A), 5)
+        # TS0D is an angle (degrees) → 2 dp before use in trig
+        TS0D = np.round(compute_TS0D(CL0, CD0, A), 2)
         logger.debug("Computed TS0D len=%d", len(TS0D))
 
-        Hzp = r5(1 - 2.5 * abs(ZPD))
-        Kdc = r5((-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038))
+        # Intermediate physical values → 3 dp
+        Hzp = r3(1 - 2.5 * abs(ZPD))
+        Kdc = r3(-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038)
         logger.debug("Computed Kdc=%s", Kdc)
-        Izp = r5(455.93 * ZPD ** 6 - 10.67 * ZPD**5 - 87.221 * ZPD**4 -
+        Izp = r3(455.93 * ZPD ** 6 - 10.67 * ZPD**5 - 87.221 * ZPD**4 -
                  3.2742 * ZPD**3 + 0.2309 * ZPD**2 + 0.0418 * ZPD + 1.0027)
         logger.debug("Computed Izp=%s", Izp)
-        TS0Ap0_1d = r5(-2 * Kdc * alpha0)
-        TS10 = np.round(Hzp * TS0Ap0_1d + 1.15 * Kdc * Izp * IW + (ALFAWI - IW), 5)
+
+        # TS0Ap0_1d is an intermediate angle (degrees) → 2 dp
+        TS0Ap0_1d = r2(-2 * Kdc * alpha0)
+
+        # TS10 is an angle (degrees) → 2 dp
+        TS10 = np.round(Hzp * TS0Ap0_1d + 1.15 * Kdc * Izp * IW + (ALFAWI - IW), 2)
+
+        # CT is dimensionless — CT**1.36 is also dimensionless (NOT degrees),
+        # so it is used directly as a radian argument in sin(); np.radians() was wrong here.
         theta_s = np.round(
-            TS0D + (CT + 0.3 * np.sin(np.radians(float(CT) ** 1.36))) * (TS10 - TS0D),
-            5
+            TS0D + (CT + 0.3 * np.sin(float(CT) ** 1.36)) * (TS10 - TS0D),
+            2
         )
         logger.debug("Computed theta_s len=%d", len(theta_s))
 
         ks = np.round(KS0D, 3)
+        # r is dimensionless → 3 dp
         r = r5(math.sqrt(1 - CT))
+        # theta_s and TS0D are already in degrees; convert to radians for trig
         theta_rad = np.radians(theta_s)
-        TS0D_rad = np.radians(TS0D)
-        alpha_p = np.round(ALFAWI - IW, 5)
+        TS0D_rad  = np.radians(TS0D)
+        # alpha_p is an angle (degrees) → 2 dp before trig
+        alpha_p = np.round(ALFAWI - IW, 2)
 
         CZ = np.round(
             ((1 + r) * (1 - ks) * np.sin(theta_rad) +
@@ -1464,7 +1491,7 @@ def fpcon():
         if isinstance(changeSections_raw, list) and changeSections_raw:
             changeSections = []
             for val in changeSections_raw:
-                for part in val.replace(',', '.').split('.'):
+                for part in val.replace(',', '-').split('-'):
                     part = part.strip()
                     if part:
                         changeSections.append(part)

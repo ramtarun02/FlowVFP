@@ -86,12 +86,12 @@ def add_vfp_results_to_data(vfp_data, sim_dir, config_key):
     flow_file_no_ext = os.path.splitext(flow_file)[0]
     flow_key = flow_file_no_ext  # use flow key without extension for results indexing
 
-    # Prepare results dict
-    if "results" not in vfp_data:
+    # Prepare results dict — guard against both missing key and explicit None value
+    if not isinstance(vfp_data.get("results"), dict):
         vfp_data["results"] = {}
-    if config_key not in vfp_data["results"]:
+    if not isinstance(vfp_data["results"].get(config_key), dict):
         vfp_data["results"][config_key] = {}
-    if flow_key not in vfp_data["results"][config_key]:
+    if not isinstance(vfp_data["results"][config_key].get(flow_key), dict):
         vfp_data["results"][config_key][flow_key] = {}
 
     results = vfp_data["results"][config_key][flow_key]

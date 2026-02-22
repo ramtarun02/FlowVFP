@@ -7,6 +7,8 @@ def readGEO(filename):
     with open(filename, 'r') as f:
         lines = f.readlines()
 
+    lines = [line for line in lines if line.strip()]  # Skip empty lines
+
     index = 0  # Track the current line being processed
 
     # Read the first line
@@ -25,31 +27,51 @@ def readGEO(filename):
         # Read MU and ML values
         line = lines[index].strip().split()
         IMARK = int(line[0])
-        MU = int(line[1])
-        ML = int(line[2])
-        XTWSEC = float(line[3])
-        TWIST = float(line[4])
-        index += 1
 
-        # Read upper surface coordinates
-        US = []
-        for _ in range(MU):
-            line = lines[index].strip().split()
-            US.append((float(line[0]), float(line[1])))
+        if IMARK == 0:
+
+            MU = int(line[1])
+            ML = int(line[2])
+            XTWSEC = float(line[3])
+            TWIST = float(line[4])
             index += 1
 
-        # Read lower surface coordinates
-        LS = []
-        for _ in range(ML):
-            line = lines[index].strip().split()
-            LS.append((float(line[0]), float(line[1])))
-            index += 1
+            # Read upper surface coordinates
+            US = []
+            for _ in range(MU):
+                line = lines[index].strip().split()
+                US.append((float(line[0]), float(line[1])))
+                index += 1
 
-        US_N = []
-        LS_N = []
-        NTWIST = 0
-        NHSECT = 0
-        NYSECT = 0
+            # Read lower surface coordinates
+            LS = []
+            for _ in range(ML):
+                line = lines[index].strip().split()
+                LS.append((float(line[0]), float(line[1])))
+                index += 1
+
+            US_N = []
+            LS_N = []
+            NTWIST = 0
+            NHSECT = 0
+            NYSECT = 0
+
+        else:
+            MU = int(line[1])
+            ML = int(line[2])
+            XTWSEC = float(line[3])
+            TWIST = float(line[4])
+
+            US = Sections[i-1]['US']
+            LS = Sections[i-1]['LS']  
+            
+            US_N = []
+            LS_N = []
+            NTWIST = 0
+            NHSECT = 0
+            NYSECT = 0
+
+            index += 1  # Move to the next line for the next section
 
 
         Sections.append({
@@ -112,6 +134,7 @@ def interpolate_airfoil(airfoil_points, num_points=10000):
     return interpolated_points, x_new, y_new
 
 import math
+import copy
 from typing import List, Dict, Tuple, Any
 
 def airfoils(Sect: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -124,7 +147,7 @@ def airfoils(Sect: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     Returns:
         List of processed airfoil data dictionaries
     """
-    Sect2 = Sect.copy()  # Make a copy to avoid modifying original data
+    Sect2 = copy.deepcopy(Sect)  # Deep copy to avoid modifying original data and to decouple shared US/LS references from IMARK != 0 sections
     
     # Check if all sections have US and LS starting with (0, 0)
     if all(s['US'][0][0] == 0 and s['LS'][0][0] == 0 for s in Sect2):
