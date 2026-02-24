@@ -36,6 +36,12 @@ function computeTS0D(CL0, CD0, A) {
   }
 }
 
+// Rounding helpers
+const roundRatio = (val) => Math.round(parseFloat(val) * 10000) / 10000;  // 4 dp  – ratios (b/D, c/D, NSPSW, y/b, ZPD, A)
+const roundAngle = (val) => Math.round(parseFloat(val) * 100) / 100;        // 2 dp  – angles (alpha, IW, ALFAWI, theta_s)
+const roundOther = (val) => Math.round(parseFloat(val) * 1000) / 1000;      // 3 dp  – everything else
+const roundArr   = (arr, fn) => (arr || []).map(v => fn(v));
+
 function PropellerWingForm() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -412,6 +418,21 @@ function PropellerWingForm() {
   }, [formData.A, arrayInputs.CL0, arrayInputs.CD0, arrayInputs.additionalDrag]);
 
   const [result, setResult] = useState(null);
+  const [clResultKey, setClResultKey] = useState('CZDwf');
+  const [cdResultKey, setCdResultKey] = useState('CXDwf');
+
+  const CL_OPTIONS = [
+    { value: 'CZD',   label: 'CZD' },
+    { value: 'CZDwf', label: 'CZDwf' },
+    { value: 'CZwf',  label: 'CZwf' },
+    { value: 'CZ',    label: 'CZ' },
+  ];
+  const CD_OPTIONS = [
+    { value: 'CXDwf', label: 'CXDwf' },
+    { value: 'CXD',   label: 'CXD' },
+    { value: 'CXwf',  label: 'CXwf' },
+    { value: 'CX',    label: 'CX' },
+  ];
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -450,12 +471,29 @@ function PropellerWingForm() {
 
       console.log("Submitting with CD0 + Additional Drag:", cd0ForSubmit);
       const payload = {
-        ...formData,
-        ALFAWI: arrayInputs.ALFAWI,
-        CL0: arrayInputs.CL0,
-        CD0: cd0ForSubmit,
-        KS00: arrayInputs.KS00,
-        TS00: arrayInputs.TS00
+        // ratios – 4 dp
+        A:            roundRatio(formData.A),
+        bOverD:       roundRatio(formData.bOverD),
+        cOverD:       roundRatio(formData.cOverD),
+        NSPSW:        roundRatio(formData.NSPSW),
+        ZPD:          roundRatio(formData.ZPD),
+        propLocation: roundRatio(formData.propLocation),
+        // angles – 2 dp
+        alpha0: roundAngle(formData.alpha0),
+        IW:     roundAngle(formData.IW),
+        // other scalars – 3 dp
+        N:      roundOther(formData.N),
+        CTIP:   roundOther(formData.CTIP),
+        D:      roundOther(formData.D),
+        // integer / enum fields – pass through as-is
+        NELMNT: parseInt(formData.NELMNT),
+        NAW:    parseInt(formData.NAW),
+        // arrays
+        ALFAWI: roundArr(arrayInputs.ALFAWI, roundAngle),
+        CL0:    roundArr(arrayInputs.CL0,    roundOther),
+        CD0:    roundArr(cd0ForSubmit,        roundOther),
+        KS00:   roundArr(arrayInputs.KS00,   roundOther),
+        TS00:   roundArr(arrayInputs.TS00,   roundAngle)
       };
       console.log("Submitting payload:", payload);      
       
@@ -493,15 +531,15 @@ function PropellerWingForm() {
       alert("No results to export.");
       return;
     }
-    const headers = ['Set', 'ALFAWI', 'CL0', 'CD0', 'KS00', 'CL_Prop', 'CD_Prop'];
+    const headers = ['Set', 'ALFAWI', 'CL0', 'CD0', 'KS00', `CL_Prop (${clResultKey})`, `CD_Prop (${cdResultKey})`];
     const rows = result.map((res, index) => [
       index + 1,
-      arrayInputs.ALFAWI[index]?.toFixed(2) || 'N/A',
-      arrayInputs.CL0[index]?.toFixed(3) || 'N/A',
-      cd0Display[index]?.toFixed(4) || 'N/A',
-      arrayInputs.KS00[index]?.toFixed(4) || 'N/A',
-      res.CZDwf?.toFixed(5) || 'N/A',
-      Math.abs(res.CXDwf)?.toFixed(5) || 'N/A'
+      arrayInputs.ALFAWI[index] != null ? roundAngle(arrayInputs.ALFAWI[index]).toFixed(2) : 'N/A',
+      arrayInputs.CL0[index]    != null ? roundOther(arrayInputs.CL0[index]).toFixed(3)    : 'N/A',
+      cd0Display[index]         != null ? roundOther(cd0Display[index]).toFixed(3)          : 'N/A',
+      arrayInputs.KS00[index]   != null ? roundOther(arrayInputs.KS00[index]).toFixed(3)   : 'N/A',
+      res[clResultKey]           != null ? roundOther(res[clResultKey]).toFixed(3)           : 'N/A',
+      res[cdResultKey]           != null ? roundOther(Math.abs(res[cdResultKey])).toFixed(3) : 'N/A'
     ]);
     let content = '';
     let filename = '';
@@ -546,8 +584,8 @@ function PropellerWingForm() {
   const preparePlotlyData = () => {
     if (!result || !Array.isArray(result)) return { clPlot: null, cdPlot: null };
     const alphaValues = arrayInputs.ALFAWI;
-    const clValues = result.map(res => res.CZD);
-    const cdValues = result.map(res => Math.abs(res.CXDwf));
+    const clValues = result.map(res => res[clResultKey]);
+    const cdValues = result.map(res => res[cdResultKey] != null ? Math.abs(res[cdResultKey]) : null);
     const cl0Values = arrayInputs.CL0;
     const cd0Values = cd0Display;
 
@@ -557,7 +595,7 @@ function PropellerWingForm() {
         y: clValues,
         type: 'scatter',
         mode: 'lines+markers',
-        name: 'CL_Prop (Computed)',
+        name: `CL_Prop (${clResultKey})`,
         line: { color: 'rgb(75,192,192)', width: 3 },
         marker: { color: 'rgb(75,192,192)', size: 8 }
       },
@@ -578,7 +616,7 @@ function PropellerWingForm() {
         y: cdValues,
         type: 'scatter',
         mode: 'lines+markers',
-        name: 'CD_Prop (Computed)',
+        name: `CD_Prop (${cdResultKey})`,
         line: { color: 'rgb(255,99,132)', width: 3 },
         marker: { color: 'rgb(255,99,132)', size: 8 }
       },
@@ -610,7 +648,7 @@ function PropellerWingForm() {
       automargin: true
     },
     yaxis: {
-      title: { text: 'Lift' },
+      title: { text: `Lift (${clResultKey})` },
       automargin: true
     },
     height: 380,
@@ -628,7 +666,7 @@ function PropellerWingForm() {
       automargin: true
     },
     yaxis: {
-      title: { text: 'Drag' },
+      title: { text: `Drag (${cdResultKey})` },
       automargin: true
     },
     height: 380,
@@ -776,21 +814,45 @@ function PropellerWingForm() {
                         <th className="px-2 py-2 text-center font-semibold">ThetaS</th>
                         <th className="px-2 py-2 text-center font-semibold">CL0</th>
                         <th className="px-2 py-2 text-center font-semibold">CD0</th>
-                        <th className="px-2 py-2 text-center font-semibold">CL_Prop</th>
-                        <th className="px-2 py-2 text-center font-semibold">CD_Prop</th>
+                        <th className="px-2 py-2 text-center font-semibold">
+                          <div className="flex flex-col items-center gap-1">
+                            <span>CL_Prop</span>
+                            <select
+                              value={clResultKey}
+                              onChange={e => setClResultKey(e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              className="text-xs font-normal text-gray-800 bg-white border border-blue-300 rounded px-1 py-0.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            >
+                              {CL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          </div>
+                        </th>
+                        <th className="px-2 py-2 text-center font-semibold">
+                          <div className="flex flex-col items-center gap-1">
+                            <span>CD_Prop</span>
+                            <select
+                              value={cdResultKey}
+                              onChange={e => setCdResultKey(e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              className="text-xs font-normal text-gray-800 bg-white border border-blue-300 rounded px-1 py-0.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            >
+                              {CD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {result.map((res, index) => (
                         <tr key={index} className={`transition-colors duration-200 hover:bg-blue-50 ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}>
                           <td className="px-2 py-2 text-center font-medium text-gray-900 bg-gray-100">{index + 1}</td>
-                          <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.ALFAWI[index]?.toFixed(2) || 'N/A'}</td>
-                          <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.KS00[index]?.toFixed(4) || 'N/A'}</td>
-                          <td className="px-2 py-2 text-center text-gray-700">{res.theta_s?.toFixed(5) || 'N/A'}</td>
-                          <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.CL0[index]?.toFixed(3) || 'N/A'}</td>
-                          <td className="px-2 py-2 text-center text-gray-700">{cd0Display[index]?.toFixed(4) || 'N/A'}</td>
-                          <td className="px-2 py-2 text-center font-medium text-blue-600">{res.CZDwf?.toFixed(5) || 'N/A'}</td>
-                          <td className="px-2 py-2 text-center font-medium text-red-600">{Math.abs(res.CXDwf).toFixed(5) || 'N/A'}</td>
+                          <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.ALFAWI[index] != null ? roundAngle(arrayInputs.ALFAWI[index]).toFixed(2) : 'N/A'}</td>
+                          <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.KS00[index] != null ? roundOther(arrayInputs.KS00[index]).toFixed(3) : 'N/A'}</td>
+                          <td className="px-2 py-2 text-center text-gray-700">{res.theta_s != null ? roundAngle(res.theta_s).toFixed(2) : 'N/A'}</td>
+                          <td className="px-2 py-2 text-center text-gray-700">{arrayInputs.CL0[index] != null ? roundOther(arrayInputs.CL0[index]).toFixed(3) : 'N/A'}</td>
+                          <td className="px-2 py-2 text-center text-gray-700">{cd0Display[index] != null ? roundOther(cd0Display[index]).toFixed(3) : 'N/A'}</td>
+                          <td className="px-2 py-2 text-center font-medium text-blue-600">{res[clResultKey] != null ? roundOther(res[clResultKey]).toFixed(3) : 'N/A'}</td>
+                          <td className="px-2 py-2 text-center font-medium text-red-600">{res[cdResultKey] != null ? roundOther(Math.abs(res[cdResultKey])).toFixed(3) : 'N/A'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -831,7 +893,7 @@ function PropellerWingForm() {
             <div className="h-full p-4 overflow-auto">
               <div className="flex flex-col gap-4 h-full">
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm w-full" style={{ minHeight: 420 }}>
-                  <h4 className="text-base font-semibold text-gray-800 mb-3 text-center">Lift vs Angle of Attack</h4>
+                  <h4 className="text-base font-semibold text-gray-800 mb-3 text-center">Lift ({clResultKey}) vs Angle of Attack</h4>
                   <div className="w-full" style={{ height: 320 }}>
                     <Plot
                       data={clPlot}
@@ -843,7 +905,7 @@ function PropellerWingForm() {
                   </div>
                 </div>
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm w-full" style={{ minHeight: 420 }}>
-                  <h4 className="text-base font-semibold text-gray-800 mb-3 text-center">Drag vs Angle of Attack</h4>
+                  <h4 className="text-base font-semibold text-gray-800 mb-3 text-center">Drag ({cdResultKey}) vs Angle of Attack</h4>
                   <div className="w-full" style={{ height: 320 }}>
                     <Plot
                       data={cdPlot}

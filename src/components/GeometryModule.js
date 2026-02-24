@@ -44,6 +44,7 @@ function GeometryModule() {
     clcd_conv: false
   });
   const [fpconDownloadUrl, setFpconDownloadUrl] = useState(null);
+  const [changeSectionsRaw, setChangeSectionsRaw] = useState('');
   const [improveSettings, setImproveSettings] = useState({
     selectedParameter: 'Twist',
     startSection: 1,
@@ -73,6 +74,7 @@ function GeometryModule() {
         return { ...prev, [field]: arr };
       });
     } else if (field === 'changeSections') {
+      setChangeSectionsRaw(value);
       setFpconParams(prev => ({
         ...prev,
         changeSections: value.split(',').map(v => v.trim()).filter(Boolean)
@@ -80,7 +82,7 @@ function GeometryModule() {
     } else if (field === 'files') {
       setFpconParams(prev => ({
         ...prev,
-        files: Array.from(value)
+        files: [...prev.files, ...Array.from(value)]
       }));
     } else if (field === 'clcd_conv') {
       setFpconParams(prev => ({
@@ -103,6 +105,22 @@ function GeometryModule() {
         }));
       }
     }
+  };
+
+  const moveFpconFile = (fromIdx, toIdx) => {
+    setFpconParams(prev => {
+      const files = [...prev.files];
+      const [moved] = files.splice(fromIdx, 1);
+      files.splice(toIdx, 0, moved);
+      return { ...prev, files };
+    });
+  };
+
+  const removeFpconFile = (idx) => {
+    setFpconParams(prev => {
+      const files = prev.files.filter((_, i) => i !== idx);
+      return { ...prev, files };
+    });
   };
 
   const handleFpconSubmit = async (e) => {
@@ -238,6 +256,7 @@ function GeometryModule() {
         body: formData,
       });
       const data = await response.json();
+      console.log('Upload response:', data);
       if (data.results) {
         const newGeoFiles = [];
         data.results.forEach((result, index) => {
@@ -1084,7 +1103,7 @@ function GeometryModule() {
                       inputMode='text'
                       className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="e.g. 2,3,4"
-                      value={fpconParams.changeSections.join(',')}
+                      value={changeSectionsRaw}
                       onChange={e => handleFpconChange('changeSections', e.target.value)}
                       required={fpconParams.nchange > 0}
                     />
@@ -1164,8 +1183,59 @@ function GeometryModule() {
                   type="file"
                   multiple
                   className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                  onChange={e => handleFpconChange('files', e.target.files)}
+                  onChange={e => { handleFpconChange('files', e.target.files); e.target.value = ''; }}
                 />
+                {fpconParams.files.length > 0 && (
+                  <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-600 border-b border-gray-200">
+                      File Order (drag to reorder)
+                    </div>
+                    <ul className="divide-y divide-gray-100">
+                      {fpconParams.files.map((file, idx) => (
+                        <li key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-blue-50 transition-colors">
+                          <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold flex-shrink-0">
+                            {idx + 1}
+                          </span>
+                          <span className="flex-1 text-xs text-gray-700 truncate" title={file.name}>{file.name}</span>
+                          <div className="flex gap-1 flex-shrink-0">
+                            <button
+                              type="button"
+                              title="Move up"
+                              disabled={idx === 0}
+                              onClick={() => moveFpconFile(idx, idx - 1)}
+                              className="p-0.5 rounded hover:bg-blue-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              title="Move down"
+                              disabled={idx === fpconParams.files.length - 1}
+                              onClick={() => moveFpconFile(idx, idx + 1)}
+                              className="p-0.5 rounded hover:bg-blue-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              title="Remove"
+                              onClick={() => removeFpconFile(idx)}
+                              className="p-0.5 rounded hover:bg-red-100 transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
               {/* Submit Button */}
               <div className="flex justify-center gap-4 mt-4">
