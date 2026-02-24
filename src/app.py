@@ -1255,6 +1255,9 @@ def compute():
         # r5        : outputs only – rounded to 5 dp
         def r2(val: float) -> float:
             return round(float(val), 2)
+        
+        def r1(val: float) -> float:
+            return round(float(val),1)
 
         def r3(val: float) -> float:
             return round(float(val), 3)
@@ -1296,19 +1299,18 @@ def compute():
         # Angle array inputs → 2 dp
         ALFAWI = arr2(data["ALFAWI"])
 
-        logger.debug("prowim compute CD0 length=%d", len(CD0))
 
         # KS0D is dimensionless → 3 dp
         KS0D = np.round(compute_KS0D(CL0, CD0, A), 3)
         # TS0D is an angle (degrees) → 2 dp before use in trig
         TS0D = np.round(compute_TS0D(CL0, CD0, A), 2)
-        logger.debug("Computed TS0D len=%d", len(TS0D))
+        logger.debug("Computed TS0D and KSOD: %s %s", TS0D.tolist(), KS0D.tolist())
 
         # Intermediate physical values → 3 dp
-        Hzp = r3(1 - 2.5 * abs(ZPD))
-        Kdc = r3(-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038)
+        Hzp = r2(1 - 2.5 * abs(ZPD))
+        Kdc = r2(-1.630 * cOverD ** 2 + 2.3727 * cOverD + 0.0038)
         logger.debug("Computed Kdc=%s", Kdc)
-        Izp = r3(455.93 * ZPD ** 6 - 10.67 * ZPD**5 - 87.221 * ZPD**4 -
+        Izp = r1(455.93 * ZPD ** 6 - 10.67 * ZPD**5 - 87.221 * ZPD**4 -
                  3.2742 * ZPD**3 + 0.2309 * ZPD**2 + 0.0418 * ZPD + 1.0027)
         logger.debug("Computed Izp=%s", Izp)
 
@@ -1317,18 +1319,20 @@ def compute():
 
         # TS10 is an angle (degrees) → 2 dp
         TS10 = np.round(Hzp * TS0Ap0_1d + 1.15 * Kdc * Izp * IW + (ALFAWI - IW), 2)
-
+        logger.debug("Computed TS10=%s", TS10.tolist())
         # CT is dimensionless — CT**1.36 is also dimensionless (NOT degrees),
         # so it is used directly as a radian argument in sin(); np.radians() was wrong here.
         theta_s = np.round(
-            TS0D + (CT + 0.3 * np.sin(float(CT) ** 1.36)) * (TS10 - TS0D),
+            TS0D + (CT + 0.3 * np.sin(np.radians(180 * float(CT) ** 1.36))) * (TS10 - TS0D),
             2
         )
-        logger.debug("Computed theta_s len=%d", len(theta_s))
+        logger.debug("Computed theta_s %s", theta_s.tolist())
 
         ks = np.round(KS0D, 3)
         # r is dimensionless → 3 dp
         r = r5(math.sqrt(1 - CT))
+        logger.debug("Computed r=%s", r)
+        logger.debug("Computed KS=%s", ks.tolist())
         # theta_s and TS0D are already in degrees; convert to radians for trig
         theta_rad = np.radians(theta_s)
         TS0D_rad  = np.radians(TS0D)
@@ -1341,6 +1345,7 @@ def compute():
              (1 - ks) * np.sin(TS0D_rad)),
             3
         )
+        logger.debug("Computed CZ=%s", CZ.tolist())
         CZwf = np.round(CZ - CT * np.sin(np.radians(alpha_p)), 3)
         CZDwf = np.round(CZwf * NSPSW / (1 - CT), 3)
         CZD = np.round(CZ * NSPSW / (1 - CT), 3)
@@ -1351,11 +1356,12 @@ def compute():
              ((1 - ks) * np.cos(TS0D_rad) - 1)),
             3
         )
+        logger.debug("Computed CX=%s", CX.tolist())
         CXwf = np.round(CX - CT * np.cos(np.radians(alpha_p)), 3)
         CXDwf = np.round(CXwf * NSPSW / (1 - CT), 3)
         CXD = np.round(CX * NSPSW / (1 - CT), 3)
 
-        logger.debug("Computed KS0D", ks.tolist())
+        logger.debug("Computed KS0D=%s", ks.tolist())
 
         logger.debug("Computed CX len=%d", len(CX))
         logger.debug("Computed CXwf len=%d", len(CXwf))
