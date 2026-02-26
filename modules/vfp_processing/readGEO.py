@@ -275,13 +275,13 @@ def writeGEO(filename, sections, xrad=None, rad=None):
                    f"{section['XTWSEC']:10.6f}{section['TWIST']:10.6f}"
             f.write(line3 + '\n')
             
-            # Line type 4 coordinates - Upper surface first
-            for x, z in section['US']:
-                line4 = f"{x:10.6f}{z:10.6f}"
-                f.write(line4 + '\n')
-            
-            # Lower surface if not symmetrical (IMARK == 0)
-            if section['IMARK'] == 0:
+            # Write airfoil coordinates only when IMARK >= 0.
+            # Sections with IMARK < 0 inherit their airfoil from the base section
+            # and carry no coordinate data in the file (mirrors the read logic).
+            if section['IMARK'] >= 0:
+                for x, z in section['US']:
+                    line4 = f"{x:10.6f}{z:10.6f}"
+                    f.write(line4 + '\n')
                 for x, z in section['LS']:
                     line4 = f"{x:10.6f}{z:10.6f}"
                     f.write(line4 + '\n')

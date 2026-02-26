@@ -36,19 +36,27 @@ def readGEO(filename):
         TWIST = float(line[4])
         index += 1
 
-        # Read upper surface coordinates
-        US = []
-        for _ in range(MU):
-            line = lines[index].strip().split()
-            US.append((float(line[0]), float(line[1])))
-            index += 1
+        # Read upper/lower surface coordinates only when IMARK >= 0.
+        # When IMARK < 0 the section inherits its airfoil from the base section
+        # (section 0) and no coordinate data is present in the file.
+        if IMARK >= 0:
+            US = []
+            for _ in range(MU):
+                line = lines[index].strip().split()
+                US.append((float(line[0]), float(line[1])))
+                index += 1
 
-        # Read lower surface coordinates
-        LS = []
-        for _ in range(ML):
-            line = lines[index].strip().split()
-            LS.append((float(line[0]), float(line[1])))
-            index += 1
+            LS = []
+            for _ in range(ML):
+                line = lines[index].strip().split()
+                LS.append((float(line[0]), float(line[1])))
+                index += 1
+        else:
+            # Inherit coordinates from the base section (first section, index 0).
+            # Use a shallow copy so modifications to one section don't affect others.
+            base = Sections[0] if Sections else {'US': [], 'LS': []}
+            US = list(base['US'])
+            LS = list(base['LS'])
 
         US_N = []
         LS_N = []
@@ -839,6 +847,124 @@ def readMAP(filename):
         i += 2  # Move to next pair
 
     return map_data
+
+def readWAVEDRG(filename):
+    """
+    Parse a wavedrg73 .dat file and return structured wave-drag data.
+
+    Columns LOCK, CDW, CDWC/CB, CDWTOT in the table are stored ×10^4 in the
+    file (header says 'DRAG COEFFS (*1.0E4)').  All drag values – including
+    CDW(tot) – are converted back to actual coefficients by × 0.0001.
+    """
+    SCALE = 1e-4
+
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+
+    data = {
+        'fileName': filename,
+        'metadata': {},
+        'upperSurface': {'rows': [], 'cdwTotal': None},
+        'lowerSurface': {'rows': [], 'cdwTotal': None},
+    }
+
+    for line in lines:
+        s = line.strip()
+        m = re.search(r'Mach No\.\s*=\s*([\d.]+)', s)
+        if m: data['metadata']['machNumber'] = float(m.group(1))
+        m = re.search(r'Incidence\s*=\s*([\d.]+)', s)
+        if m: data['metadata']['incidence'] = float(m.group(1))
+        m = re.search(r'CLT\s*=\s*([\d.-]+)', s)
+        if m: data['metadata']['CLT'] = float(m.group(1))
+        m = re.search(r'CDT\s*=\s*([\d.-]+)', s)
+        if m: data['metadata']['CDT'] = float(m.group(1))
+        m = re.search(r'Reference wing area,\s*AREA\s*=\s*([\d.]+)', s)
+        if m: data['metadata']['area'] = float(m.group(1))
+        m = re.search(r'Reference wing chord,\s*CBAR\s*=\s*([\d.]+)', s)
+        if m: data['metadata']['cbar'] = float(m.group(1))
+
+    def _parse_surface(lines, start_idx, surface_dict):
+        current_geom = None
+        i = start_idx
+        while i < len(lines):
+            line = lines[i]
+            i += 1
+            stripped = line.strip()
+
+            if 'Total wave drag for block' in stripped:
+                m = re.search(r'CDW\(tot\)\s*=\s*([\d.]+)', stripped)
+                if m:
+                    surface_dict['cdwTotal'] = float(m.group(1)) * SCALE
+                break
+
+            if not stripped:
+                continue
+            if stripped.startswith('+') or stripped.startswith('|') or stripped.startswith('*'):
+                continue
+            if stripped.startswith('--') or stripped.startswith('LOCK'):
+                continue
+
+            values = stripped.split()
+            if len(values) < 7:
+                continue
+
+            is_primary = '.' in values[1]
+
+            if is_primary:
+                try:
+                    current_geom = {
+                        'K':      int(values[0]),
+                        'ETA':    float(values[1]),
+                        'Y':      float(values[2]),
+                        'XLE':    float(values[3]),
+                        'CHORD':  float(values[4]),
+                        'C/CBAR': float(values[5]),
+                        'CLL':    float(values[6]),
+                    }
+                    if len(values) >= 18:
+                        surface_dict['rows'].append({
+                            **current_geom,
+                            'LOCK':    float(values[14]) * SCALE,
+                            'CDW':     float(values[15]) * SCALE,
+                            'CDWC/CB': float(values[16]) * SCALE,
+                            'CDWTOT':  float(values[17]) * SCALE,
+                        })
+                    else:
+                        surface_dict['rows'].append({
+                            **current_geom,
+                            'LOCK': None, 'CDW': None,
+                            'CDWC/CB': None, 'CDWTOT': None,
+                        })
+                except (ValueError, IndexError):
+                    pass
+            else:
+                if current_geom and len(values) >= 11:
+                    try:
+                        surface_dict['rows'].append({
+                            **current_geom,
+                            'LOCK':    float(values[7])  * SCALE,
+                            'CDW':     float(values[8])  * SCALE,
+                            'CDWC/CB': float(values[9])  * SCALE,
+                            'CDWTOT':  float(values[10]) * SCALE,
+                        })
+                    except (ValueError, IndexError):
+                        pass
+        return i
+
+    upper_start = lower_start = None
+    for idx, line in enumerate(lines):
+        if 'UPPER SURFACE FLOW FIELD ANALYSIS' in line:
+            upper_start = idx + 1
+        elif 'LOWER SURFACE FLOW FIELD ANALYSIS' in line:
+            lower_start = idx + 1
+
+    if upper_start is not None:
+        _parse_surface(lines, upper_start, data['upperSurface'])
+    if lower_start is not None:
+        _parse_surface(lines, lower_start, data['lowerSurface'])
+
+    return data
+
 
 def test_and_print_json(func, filename):
     """
