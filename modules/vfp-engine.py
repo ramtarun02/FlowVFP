@@ -1275,7 +1275,7 @@ if auto_runner:
     except Exception as _e:
         logger.error("AutoRunner: extract_polars failed: %s", _e)
 
-    if has_tail and excel_rows:
+    if excel_rows:
         export_wing_tail_excel(excel_rows, simName, project_root)
 
     try:
