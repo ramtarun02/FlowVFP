@@ -6,10 +6,7 @@
 .pnp.js
 package-lock.json
 yarn.lock
-<<<<<<< HEAD
-=======
 
->>>>>>> 1227c2a4e059b99ed2189b463c8e63ed24307e5a
 # testing
 /coverage
 
@@ -27,18 +24,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# legacy backend (no longer in this repo)
 /backend/__pycache__
-<<<<<<< HEAD
-
-/flask_sessions
-=======
 /backend/flask_session/
->>>>>>> 161ec575dec49a0a957681d715f301f74d1135df
-
 /backend/Simulations
+/flask_sessions
 
-.hintrc 
+# IDE
+.idea/
+.hintrc
 
 /win
-
-yarn.lock

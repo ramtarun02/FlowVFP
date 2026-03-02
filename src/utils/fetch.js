@@ -1,24 +1,16 @@
 // Direct export approach (more reliable than global variables)
 const getBaseURL = () => {
-    console.log('Current NODE_ENV:', process.env.NODE_ENV);
-    console.log('Current mode:', import.meta.env.MODE); // Vite specific
-
-    // Check both Vite and traditional environment variables
+    // In development, use relative URLs so Vite's dev-server proxy forwards
+    // requests to the Flask backend — this avoids CORS entirely.
     const isDevelopment =
-        process.env.NODE_ENV === 'development' ||
         import.meta.env.DEV ||
-        import.meta.env.MODE === 'development' ||
-        window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1';
+        import.meta.env.MODE === 'development';
 
     if (isDevelopment) {
-        console.log('Using development URL: http://127.0.0.1:5000');
-        return 'http://127.0.0.1:5000';
+        return '';
     }
 
-    // Fix: Add https:// protocol for Azure deployment
-    const prodURL = process.env.VITE_API_URL || 'https://vfp-solver-gngfaahkh2fkbbhh.uksouth-01.azurewebsites.net';
-    console.log('Using production URL:', prodURL);
+    const prodURL = import.meta.env.VITE_API_URL || 'https://vfp-solver-gngfaahkh2fkbbhh.uksouth-01.azurewebsites.net';
     return prodURL;
 };
 

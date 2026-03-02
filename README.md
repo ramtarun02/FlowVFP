@@ -1,287 +1,543 @@
-# Viscous Full Potential Flow Solver
+# VFP-2025 — Frontend Developer Guide
 
+> React 19 / TypeScript / Vite frontend for the FlowVFP aerodynamic analysis application.
+
+---
 
 ## Table of Contents
 
-- [Viscous Full Potential Flow Solver](#viscous-full-potential-flow-solver)
+- [VFP-2025 — Frontend Developer Guide](#vfp-2025--frontend-developer-guide)
   - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
-  - [Purpose](#purpose)
-  - [Target Audience](#target-audience)
-  - [Key Advantages over Legacy VFP CLI/MATLAB GUI](#key-advantages-over-legacy-vfp-climatlab-gui)
-- [Getting Started](#getting-started)
-  - [System Requirements](#system-requirements)
-  - [Installation](#installation)
-    - [2.2.1 Accessing the Web Application (End Users)](#221-accessing-the-web-application-end-users)
-    - [2.2.2 Local Installation (Developers/Administrators)](#222-local-installation-developersadministrators)
-  - [2.3 Starting the Application](#23-starting-the-application)
-  - [Modules and Components](#modules-and-components)
-    - [Geometry Module](#geometry-module)
-      - [Salient Features](#salient-features)
-      - [Specifications of Wing Geometry File](#specifications-of-wing-geometry-file)
-      - [Modifying Wing Planform Parameters (Compute Desired Function)](#modifying-wing-planform-parameters-compute-desired-function)
-      - [Improving Wing Planform Parameters (Improve Function)](#improving-wing-planform-parameters-improve-function)
-      - [FPCON - Generating VFP Input Files](#fpcon---generating-vfp-input-files)
-        - [Important Notes and Best Practices](#important-notes-and-best-practices)
-  - [References](#references)
+  - [Quick Start](#quick-start)
+  - [Technology Stack](#technology-stack)
+  - [Project Structure](#project-structure)
+  - [Architecture Overview](#architecture-overview)
+    - [Application Shell](#application-shell)
+    - [Routing](#routing)
+    - [State Management](#state-management)
+      - [VfpDataContext (`src/store/VfpDataContext.tsx`)](#vfpdatacontext-srcstorevfpdatacontexttsx)
+      - [SimulationDataContext (`src/store/SimulationDataContext.tsx`)](#simulationdatacontext-srcstoresimulationdatacontexttsx)
+    - [API Layer](#api-layer)
+      - [`client.ts` — Core HTTP Client](#clientts--core-http-client)
+      - [Domain API Modules](#domain-api-modules)
+      - [`socket.ts` — Socket.IO Client](#socketts--socketio-client)
+    - [Custom Hooks](#custom-hooks)
+    - [Components](#components)
+    - [Utilities](#utilities)
+      - [Streaming JSON Parsers (Memory-Safe Large File Handling)](#streaming-json-parsers-memory-safe-large-file-handling)
+      - [IndexedDB Storage](#indexeddb-storage)
+    - [Type System](#type-system)
+  - [Build Configuration](#build-configuration)
+    - [Vite](#vite)
+    - [TypeScript](#typescript)
+    - [Tailwind CSS](#tailwind-css)
+    - [Path Aliases](#path-aliases)
+  - [Development Workflow](#development-workflow)
+    - [Dev server proxy](#dev-server-proxy)
+    - [Adding a new page](#adding-a-new-page)
+  - [Testing](#testing)
+    - [Current test coverage](#current-test-coverage)
+  - [Production Build \& Deployment](#production-build--deployment)
+    - [GitHub Pages Deployment](#github-pages-deployment)
+  - [Environment Variables](#environment-variables)
+  - [Legacy Code \& Migration Notes](#legacy-code--migration-notes)
+  - [Key Design Decisions](#key-design-decisions)
 
+---
 
-## Overview 
+## Quick Start
 
-The VFP (Viscous Full Potential) Web Application is a modern, browser-based computational fluid dynamics (CFD) tool designed for conceptual aircraft design. This application replaces the legacy MATLAB-based GUI with a scalable, cross-platform web solution built using ReactJS for the frontend and Python for the backend server. The VFP (Viscous Full Potential) Web Application is a modern, browser-based computational fluid dynamics (CFD) tool designed for transonic aircraft design. This application replaces the legacy MATLAB-based GUI with a scalable, cross-platform web solution built using ReactJS for the frontend and Python for the backend server.
-
-
-
-## Purpose 
-
-The VFP Web Application aims to:
-
-- Provides an efficient and interactive graphical user interface for the legacy VFP CLI developed by ESDU.
-- Enable efficient geometry visualisation, modifications and performance evaluations
-- Supports Generation of VFP Input Files by integrated FPCON
-- Auto Runner -- Enables Users to simulate continuation run through a range og angle of attacks.
-- Facilitate multi-user, collaborative workflows through web-based access
-- Support integration of propeller-wing interference modeling (ProWIM)
-- Eliminate platform dependencies (Windows-only constraint of the original MATLAB/Fortran implementation)
-
-## Target Audience
-
-This application is designed for:
-
-- **Aerospace engineers** conducting conceptual/preliminary aircraft design
-- **Researchers** studying potential flows and boundary layer.
-- **Students** learning CFD and aircraft design principles
-- **Design teams** requiring collaborative and rapid aerodynamic analysis tools
-
-## Key Advantages over Legacy VFP CLI/MATLAB GUI
-
-- Provides an efficient and interactive graphical user interface for the legacy VFP CLI developed by ESDU.
-- Enable efficient geometry visualisation, modifications and performance evaluations
-- **Integrated FPCON**: Supports Generation of VFP Input Files by integrated ESDU's FPCON
-- **Auto Runner** -- Enables Users to simulate continuation run through a range of angle of attacks.
-- **Cross-platform accessibility**: Works on Windows, macOS, and Linux via web browser
-- **Multi-user support**: Enables simultaneous access by multiple team members
-- **Improved performance**: Enhanced responsiveness and computational efficiency
-- **Modern UI/UX**: Intuitive interface with contemporary design patterns
-- **No licensing costs**: Open-source technology stack eliminates proprietary software fees
-- **Cloud deployment ready**: Can be hosted on institutional or cloud servers
-
-# Getting Started
-
-Welcome to the Aircraft Design and Optimization Tool! This guide will help you set up and start using the application, even if you have limited experience with software installation.
-
-## System Requirements
-
-**Minimum Requirements:**
-
-- **Modern web browser (Chrome, Firefox, Safari, Edge)**
-- **Internet connection (for web-hosted deployment)**
-
-
-**For Local Installation:**
-
-- **Git:** Used to clone repositories; check installation by running `git --version` in your terminal.
-- **Node.js 16.x or higher, npm 7.x or higher (Frontend):** Required to run and build the frontend; check with `node -v` and `npm -v`.
-- **Python 3.8 or higher, pip package manager (Backend):** Needed for backend server; check with `python --version` and `pip --version`.
-- **Operating System (Windows 10/11, macOS 10.15+, or Linux Ubuntu 20.04+)**
-- **RAM: 4GB minimum, 8GB recommended** 
-- **Disk Space: 20GB free space**
-
-
-## Installation
-
-### 2.2.1 Accessing the Web Application (End Users)
-
-The application is deployed online via GitHub Pages. To access the VFP Web Application, simply navigate to the following URL in your web browser—no local installation required.
-
-**VFP Application URL:** [https://ramtarun02.github.io/VFP-2025](https://ramtarun02.github.io/VFP-2025)
-
-### 2.2.2 Local Installation (Developers/Administrators)
-
-#### Step 1: Clone the Frontend Repository <!-- omit from toc -->
 ```bash
-git clone https://github.com/ramtarun02/VFP-2025.git
-cd VFP-2025
-```
-#### Step 2: Frontend Setup <!-- omit from toc -->
-```bash
-# Navigate to frontend directory (from project root)
-cd VFP-2025
+# Prerequisites: Node.js ≥ 20 LTS, npm ≥ 10
+# The backend (VFP-Python) must be running at http://127.0.0.1:5000
 
-# Install dependencies
 npm install
+
+# Copy environment template (if provided)
+copy .env.example .env.local        # Windows
+# cp .env.example .env.local        # macOS / Linux
+
+npm run dev                          # → http://localhost:3000
 ```
 
-#### Step 3: Clone and Set Up the Backend Server <!-- omit from toc -->
-The backend server is now maintained in a separate repository. Clone and set up the backend as follows:
+The Vite dev server proxies `/api/*` and `/socket.io/*` requests to the Flask backend at `http://127.0.0.1:5000`.
+
+---
+
+## Technology Stack
+
+| Category | Library | Version | Purpose |
+| --- | --- | --- | --- |
+| **Framework** | React | 19 | UI component library |
+| **Language** | TypeScript | 5.6 | Type-safe JavaScript |
+| **Bundler** | Vite | 7.1 | Dev server, HMR, production builds |
+| **Styling** | Tailwind CSS | 3.4 | Utility-first CSS framework |
+| **Routing** | react-router-dom | 7 | Client-side routing |
+| **2D Charts** | Plotly.js | 3 | Interactive 2D plots (Cp, forces, planform) |
+| **3D Rendering** | Three.js | 0.176 | 3D wing model visualisation |
+| **Contour Plots** | D3.js | 7.9 | 2D contour rendering |
+| **Supplementary Charts** | Chart.js | 4.5 | Lightweight supplementary charts |
+| **WebSocket** | socket.io-client | 4.8 | Real-time simulation communication |
+| **Streaming JSON** | @streamparser/json | 0.0.22 | Parse 100 MB+ VFP files without exhausting memory |
+| **Icons** | lucide-react, @tabler/icons-react | — | UI icons |
+| **Testing** | Vitest, @testing-library/react | 3 / 16 | Unit and component tests |
+| **Linting** | ESLint | 9 | Code quality |
+
+---
+
+## Project Structure
+
+```text
+VFP-2025/
+├── public/                     Static assets (index.html, manifest.json, robots.txt)
+├── build/                      Production build output (gitignored in dev)
+├── docs/
+│   └── COMPONENTS.md           Detailed component-level reference
+├── src/
+│   ├── main.tsx                Vite entry point — mounts <App /> to #root
+│   ├── App.tsx                 Root component: providers, router, lazy routes
+│   ├── App.css                 (empty — styles in index.css / Tailwind)
+│   ├── index.css               Tailwind directives (@tailwind base/components/utilities)
+│   │
+│   ├── types/
+│   │   └── index.ts            All domain TypeScript interfaces and types
+│   │
+│   ├── api/                    HTTP and WebSocket service layer
+│   │   ├── client.ts           Core fetch wrapper (ApiResponse<T>, error handling)
+│   │   ├── geometry.ts         Geometry endpoints (import, export, fpcon, interpolate)
+│   │   ├── simulation.ts       Simulation endpoints (start, upload, file listing)
+│   │   ├── files.ts            VFP file upload and result listing
+│   │   ├── postprocessing.ts   Post-processing parsers (Cp, forces, vis, contour)
+│   │   ├── prowim.ts           ProWiM computation endpoint
+│   │   └── socket.ts           Socket.IO factory with typed events
+│   │
+│   ├── hooks/                  Custom React hooks
+│   │   ├── useGeometry.ts      Geometry state + API operations
+│   │   ├── useSimulation.ts    Simulation lifecycle (socket, status machine)
+│   │   ├── useSocket.ts        Low-level Socket.IO connection management
+│   │   └── useVfpData.ts       Post-processing data state + loaders
+│   │
+│   ├── store/                  React Context providers (global state)
+│   │   ├── VfpDataContext.tsx   VFP session data (sessionId, manifest, vfpData)
+│   │   └── SimulationDataContext.tsx  Simulation form state + file config
+│   │
+│   ├── components/             UI components (one per route/feature)
+│   │   ├── LandingPage.jsx     Home page
+│   │   ├── GeometryModule.jsx  Geometry import/edit/export + FPCON
+│   │   ├── RunSolver.jsx       Solver execution interface
+│   │   ├── SimulationRun.jsx   Simulation config and monitoring
+│   │   ├── VFPPost.js          Post-processing dashboard
+│   │   ├── PostProcessing.jsx  Post-processing module
+│   │   ├── ContourPlot.jsx     2D contour visualisation
+│   │   ├── BoundaryLayerData.jsx  Boundary-layer data viewer
+│   │   ├── Research.jsx        Research module
+│   │   ├── ProWiM.jsx          Propeller-wing interaction
+│   │   ├── Prowim3Dmodel.jsx   3D ProWiM visualisation
+│   │   ├── Plot2D.jsx          Plotly 2D chart wrapper
+│   │   ├── Plot3D.jsx          Three.js 3D wing viewer
+│   │   ├── VfpDumpSelector.jsx Continuation run file selector
+│   │   ├── vfpDataContext.jsx  Legacy VFP data provider (JSX)
+│   │   ├── SimulationDataContext.jsx  Legacy simulation context (JSX)
+│   │   └── ui/
+│   │       └── ErrorBoundary.tsx  React error boundary (class component)
+│   │
+│   ├── utils/                  Non-React utility modules
+│   │   ├── vfpParser.js        Stream-parse VFP JSON → extract formData + dumps
+│   │   ├── vfpStorage.js       IndexedDB store for continuation-run dump files
+│   │   ├── vfpPostParser.js    Stream-parse VFP JSON → extract result files for post
+│   │   ├── vfpPostStorage.js   IndexedDB store for post-processing result files
+│   │   ├── fetch.js            Legacy fetch wrapper (being replaced by api/client.ts)
+│   │   └── socket.js           Legacy Socket.IO connector (being replaced by api/socket.ts)
+│   │
+│   └── tests/                  Test files
+│       ├── setup.ts            Vitest global setup (mocks, jest-dom)
+│       ├── api.client.test.ts  API client unit tests
+│       ├── ErrorBoundary.test.tsx  Error boundary tests
+│       └── useSimulation.test.ts  Simulation hook tests
+│
+├── index.html                  Vite HTML template (references src/main.tsx)
+├── package.json                Dependencies, scripts, metadata
+├── vite.config.js              Vite configuration (proxy, aliases, chunking)
+├── tsconfig.json               TypeScript configuration
+├── tailwind.config.js          Tailwind CSS configuration
+├── postcss.config.js           PostCSS plugins (Tailwind + Autoprefixer)
+└── README.md                   This file
+```
+
+---
+
+## Architecture Overview
+
+### Application Shell
+
+The application mounts in `src/main.tsx` and renders the root component tree:
+
+```text
+<React.StrictMode>
+  └── <App />
+        └── <ErrorBoundary>
+              └── <VfpDataProvider>           ← Global VFP session state
+                    └── <SimulationDataProvider>  ← Simulation form state
+                          └── <BrowserRouter>
+                                └── <Routes>   ← Lazy-loaded page components
+```
+
+All pages are wrapped in two context providers and an error boundary. If any component throws, `ErrorBoundary` renders a crash fallback with a recovery button.
+
+### Routing
+
+Nine routes are defined in `App.tsx`, all **lazy-loaded** with `React.lazy()` and wrapped in `<Suspense>`:
+
+| Path | Component | Module |
+| --- | --- | --- |
+| `/` | `LandingPage` | — |
+| `/solver` | `RunSolver` | Solver |
+| `/geometry` | `GeometryModule` | Geometry |
+| `/simulation` | `SimulationRun` | Solver |
+| `/post` | `VFPPost` | Post-processing |
+| `/research` | `Research` | Research |
+| `/prowim` | `ProWiM` | ProWiM |
+| `/post-processing/contour-plot` | `ContourPlot` | Post-processing |
+| `/post-processing/boundary-layer` | `BoundaryLayerData` | Post-processing |
+
+A catch-all `*` route redirects to `/`.
+
+### State Management
+
+The application uses **React Context** for global state — no external state management library (Redux, Zustand, etc.).
+
+#### VfpDataContext (`src/store/VfpDataContext.tsx`)
+
+Provides the main VFP session state:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `sessionId` | `string` | Current session identifier |
+| `manifest` | `VfpManifest \| null` | Split-JSON manifest for uploaded VFP files |
+| `vfpData` | `VfpData \| null` | Complete VFP data (formData + inputFiles + results) |
+
+Methods: `applyUploadResponse(response)` — merges upload results into state; `reset()` — clears all data.
+
+#### SimulationDataContext (`src/store/SimulationDataContext.tsx`)
+
+Provides simulation configuration state:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `simName` | `string` | Simulation name |
+| `formData` | `SimulationFormData` | AoA, Mach, auto-runner settings, continuation config |
+| `fileConfig` | `FileConfig` | Wing/tail/body file names |
+| `inputFiles` | `InputFiles` | Uploaded file content |
+| `lastExitCode` | `number \| null` | Solver exit code |
+
+### API Layer
+
+All backend communication is centralised in `src/api/`. The modern TypeScript layer is progressively replacing the legacy `utils/fetch.js`.
+
+#### `client.ts` — Core HTTP Client
+
+```typescript
+type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: string };
+
+get<T>(path: string): Promise<ApiResponse<T>>
+post<T>(path: string, body: object): Promise<ApiResponse<T>>
+postForm<T>(path: string, formData: FormData): Promise<ApiResponse<T>>
+```
+
+- **Base URL detection**: In development, the URL is empty (requests go through Vite's proxy). In production, it auto-detects the Azure deployment URL or uses `VITE_API_URL`.
+- **Error wrapping**: All responses are normalised to `ApiResponse<T>`. Network errors, non-2xx status codes, and JSON parse failures are caught and returned as `{ ok: false, error: string }`.
+
+#### Domain API Modules
+
+| Module | Endpoints | Key functions |
+| --- | --- | --- |
+| `geometry.ts` | `/api/geometry/*` | `importGeo()`, `exportGeo()`, `runFpcon()`, `computeDesired()`, `interpolateParameter()` |
+| `simulation.ts` | `/api/simulation/*` | `getSimulationFolder()`, `getFileContent()`, `uploadVfpData()` |
+| `files.ts` | `/api/files/*` | `uploadVfp()`, `getVfpResultFiles()` |
+| `postprocessing.ts` | `/api/post/*` | `parseCp()`, `parseForces()`, `parseDat()`, `parseVis()`, `parseVfpFile()`, `getContourGrid()`, `computeTailDownwash()` |
+| `prowim.ts` | `/api/prowim/*` | `computeProWiM()` |
+
+#### `socket.ts` — Socket.IO Client
+
+```typescript
+interface ServerToClientEvents {
+  message: (data: string) => void;
+  simulation_finished: (data: { exit_code: number; message: string }) => void;
+  simulation_error: (data: { error: string }) => void;
+  pong: () => void;
+}
+
+interface ClientToServerEvents {
+  start_simulation: (data: object) => void;
+  stop_simulation: () => void;
+  ping: () => void;
+}
+```
+
+- **Dev mode**: Uses HTTP long-polling only (Werkzeug dev server cannot upgrade to WebSocket).
+- **Production**: Uses polling + WebSocket upgrade.
+- `createSocket()` factory returns a typed `Socket<ServerToClientEvents, ClientToServerEvents>`.
+
+### Custom Hooks
+
+| Hook | File | Responsibilities |
+| --- | --- | --- |
+| `useGeometry` | `hooks/useGeometry.ts` | Manages `sections[]` and `wingSpecs` state; wraps `importGeoFile()`, `exportGeoFile()`, `fpcon()`, `computeDesiredAoA()`, `interpolate()` |
+| `useSimulation` | `hooks/useSimulation.ts` | Full simulation lifecycle via Socket.IO. Status state machine: `idle` → `connecting` → `running` → `complete` / `error` / `stopped`. Provides `startSimulation()`, `stopSimulation()`, `clearOutput()`. Collects solver output lines. |
+| `useSocket` | `hooks/useSocket.ts` | Low-level Socket.IO connection management (connect, disconnect, event binding) |
+| `useVfpData` | `hooks/useVfpData.ts` | Post-processing data state: `cpData`, `forces`, `datContent`, `visData`, `contourGrid`, `tailDownwash` + loader functions for each |
+
+### Components
+
+Components are **feature-based** (one component per application page/feature), not atomic UI components. Each component is self-contained and manages its own local state, using hooks and context for shared state.
+
+**Visualisation components:**
+
+| Component | Technology | Description |
+| --- | --- | --- |
+| `Plot2D.jsx` | Plotly.js | Generic 2D chart — planform, section profiles, twist/dihedral distributions, Cp plots, force distributions |
+| `Plot3D.jsx` | Three.js | 3D wireframe wing model with orbit controls, axis helpers, section highlighting |
+| `ContourPlot.jsx` | D3.js | 2D filled contour map of flow variables across wing planform |
+| `Prowim3Dmodel.jsx` | Three.js | 3D visualisation of propeller-wing interaction geometry |
+
+**Page components:**
+
+| Component | Route | Description |
+| --- | --- | --- |
+| `LandingPage.jsx` | `/` | Application home with module navigation |
+| `GeometryModule.jsx` | `/geometry` | Full geometry workflow: import, edit, FPCON, export |
+| `RunSolver.jsx` | `/solver` | Solver execution with file upload and live terminal |
+| `SimulationRun.jsx` | `/simulation` | Simulation configuration (AoA, Mach, files, auto-runner) |
+| `VFPPost.js` | `/post` | Post-processing dashboard: upload .vfp, view results |
+| `BoundaryLayerData.jsx` | `/post-processing/boundary-layer` | Boundary-layer data viewer |
+| `ProWiM.jsx` | `/prowim` | ProWiM computation interface |
+| `Research.jsx` | `/research` | Research module |
+
+### Utilities
+
+#### Streaming JSON Parsers (Memory-Safe Large File Handling)
+
+FlowVFP result files (`.vfp`) can exceed 100 MB. Standard `JSON.parse()` would crash the browser tab. Two streaming parsers solve this:
+
+| Utility | Purpose | Storage |
+| --- | --- | --- |
+| `vfpParser.js` | Parse `.vfp` → extract `formData` + 7 fort dump files for continuation runs | `vfpStorage.js` (IndexedDB) |
+| `vfpPostParser.js` | Parse `.vfp` → extract all result files (Cp, forces, vis, dat) for post-processing | `vfpPostStorage.js` (IndexedDB) |
+
+Both use `@streamparser/json` to process the file in a single streaming pass. Data is flushed to IndexedDB in chunks (64 KB), keeping browser memory bounded.
+
+#### IndexedDB Storage
+
+Two separate IndexedDB databases avoid cross-contamination between solver and post-processing data:
+
+| Store | Database | Stores |
+| --- | --- | --- |
+| `vfpStorage.js` | `vfp-dump-store` | Fort dump files (fort11, fort15, fort21, fort50, fort51, fort52, fort55) for continuation runs |
+| `vfpPostStorage.js` | `vfp-post-store` | Result files (Cp, forces, vis, dat, meta) for post-processing |
+
+Both are singletons with promise-based APIs: `store()`, `get()`, `list()`, `clear()`.
+
+### Type System
+
+All domain types are defined in `src/types/index.ts` (247 lines). Key types:
+
+```typescript
+// Wing geometry
+GeoSection         // Wing section: coordinates, parameters (YSECT, G1SECT, TWIST, HSECT, ...)
+SectionPlotData    // Interpolated airfoil (xus, zus, xls, zls, camber, t_c)
+WingSpecs          // Computed metrics (AR, taper, span, sweep angles)
+
+// Interpolation
+InterpolationMethod // 'linear' | 'quadratic' | 'elliptical' | 'cosine' | 'power' | 'schuemann' | 'hermite' | 'exponential'
+InterpolateParameterRequest
+
+// Simulation
+SimulationFormData  // simName, aoa, mach, autoRunner settings, continuation config
+FileConfig          // Wing/tail/body file names (GEO, MAP, DAT)
+InputFiles          // File name + content pairs per configuration
+
+// Results
+CpSection / CpData        // Pressure coefficient distributions
+ForceCoefficients          // CL, CD, CM, CDi, CDv, CDw
+SimulationFile / FileGroups // File listing structures
+
+// Data packaging
+VfpData            // formData + inputFiles + results
+UploadVfpResponse  // Server response after VFP upload
+VfpManifest        // Split-JSON manifest
+```
+
+---
+
+## Build Configuration
+
+### Vite
+
+Key settings in `vite.config.js`:
+
+- **Base path**: `/VFP-2025` (for GitHub Pages sub-path deployment)
+- **Dev server**: Port 3000
+- **Proxy rules** (dev only):
+  - `/api/*` → `http://127.0.0.1:5000`
+  - `/socket.io/*` → `http://127.0.0.1:5000` (WebSocket enabled)
+  - Legacy route proxies for direct solver/fpcon paths
+- **Chunk splitting** (production):
+  - `react-vendor` — React + ReactDOM
+  - `plotly-vendor` — Plotly.js (largest chunk)
+  - `charts-vendor` — Chart.js
+  - `three-vendor` — Three.js
+  - `d3-vendor` — D3.js
+
+### TypeScript
+
+`tsconfig.json` targets **ES2020** with strict mode enabled. `allowJs: true` permits the legacy `.jsx`/`.js` components to coexist with `.tsx`/`.ts` files during migration.
+
+### Tailwind CSS
+
+Standard setup scanning `./index.html` and `./src/**/*.{js,ts,jsx,tsx}`. PostCSS pipeline: `tailwindcss` → `autoprefixer`.
+
+### Path Aliases
+
+Defined in both `vite.config.js` and `tsconfig.json`:
+
+| Alias | Maps To |
+| --- | --- |
+| `@api/*` | `src/api/*` |
+| `@components/*` | `src/components/*` |
+| `@hooks/*` | `src/hooks/*` |
+| `@types/*` | `src/types/*` |
+| `@utils/*` | `src/utils/*` |
+| `@store/*` | `src/store/*` |
+
+---
+
+## Development Workflow
+
+| Task | Command |
+| --- | --- |
+| Start dev server | `npm run dev` |
+| Run tests | `npm test` |
+| Run tests in watch mode | `npx vitest --watch` |
+| Lint | `npm run lint` |
+| Type-check | `npx tsc --noEmit` |
+| Production build | `npm run build` |
+| Preview production build | `npm run preview` |
+
+### Dev server proxy
+
+During development, the Vite dev server runs on port 3000 and proxies API calls to the Flask backend on port 5000. This avoids CORS issues and mirrors the production setup where both are served behind a single domain.
+
+```text
+Browser (localhost:3000)
+  ├── /api/*         ──proxy──▶  Flask (localhost:5000)
+  ├── /socket.io/*   ──proxy──▶  Flask (localhost:5000)
+  └── /* (all else)  ──serve──▶  Vite HMR (src/)
+```
+
+### Adding a new page
+
+1. Create `src/components/MyPage.tsx`
+2. Add a lazy-loaded route in `App.tsx`:
+
+    ```tsx
+    const MyPage = lazy(() => import('@components/MyPage'));
+    // Inside <Routes>:
+    <Route path="/my-page" element={<MyPage />} />
+    ```
+
+3. If it needs API calls, create `src/api/myfeature.ts` using the `client.ts` helpers
+4. If it needs shared state, add a context or use an existing one
+5. If it has complex logic, extract a `src/hooks/useMyFeature.ts` hook
+
+---
+
+## Testing
+
+Tests use **Vitest** with **jsdom** environment and **@testing-library/react**.
 
 ```bash
-git clone https://github.com/ramtarun02/VFP-Python.git
-cd VFP-Python
-
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+npm test                    # Single run
+npx vitest --watch          # Watch mode
+npx vitest --coverage       # Coverage report
 ```
 
-## 2.3 Starting the Application
+Test setup (`src/tests/setup.ts`):
 
-**Step 1: Start the Backend Server** <!-- omit from toc -->
+- Imports `@testing-library/jest-dom` for DOM matchers
+- Mocks `import.meta.env` for test mode detection
+
+### Current test coverage
+
+| Test File | What it covers |
+| --- | --- |
+| `api.client.test.ts` | `get()`, `post()`, `postForm()` — success, error, network failure |
+| `ErrorBoundary.test.tsx` | Error catching, fallback rendering, reset functionality |
+| `useSimulation.test.ts` | Status state machine, output collection, socket event handling |
+
+---
+
+## Production Build & Deployment
+
 ```bash
-cd VFP-Python
-# Activate virtual environment (Make Sure the venv is activated everytime you start the backend server)
-venv\Scripts\activate  # On Windows
-# or
-source venv/bin/activate  # On macOS/Linux
-
-# Set Flask app environment variable (Only Needed when setting up for the first time)
-set FLASK_APP=src/app.py        # On Windows
-# or
-export FLASK_APP=src/app.py     # On macOS/Linux
-
-# Start the Flask development server
-flask run
+npm run build
+# Output → build/
 ```
 
-The backend server will start on http://localhost:5000
+### GitHub Pages Deployment
 
-**Step 2: Start the Frontend Development Server** <!-- omit from toc -->
-In the frontend folder (VFP-2025), run 
-```bash 
-npm run dev
-```
+The frontend is deployed to GitHub Pages at `https://ramtarun02.github.io/VFP-2025`.
 
-The VFP Application will open in a new browser window/tab with an URL http://localhost:3000
+1. Ensure `VITE_BASE_PATH=/VFP-2025` is set in `.env.production`
+2. `npm run build` generates optimised assets in `build/`
+3. Deploy `build/` to the `gh-pages` branch
 
-## Modules and Components
+In production, the frontend communicates with the backend at the Azure App Service URL (auto-detected in `client.ts` or set via `VITE_API_URL`).
 
-The VFP-2025 Web Application is structured into three primary modules: Geometry, Solver, and VFP-Post. Each module is designed to encapsulate a distinct phase of the aerodynamic analysis workflow, with dedicated components that deliver specialized functionality. Components within each module are responsible for specific tasks such as file generation, visualization, computation, and post-processing. This modular approach ensures clarity, maintainability, and scalability, allowing users to focus on specific tasks while benefiting from a cohesive user experience.
+---
 
-- **Geometry Module:** Facilitates the import, visualization, and modification of aircraft wing geometry, and supports the generation of solver input files.
-- **Solver Module:** Manages the setup, execution, and monitoring of aerodynamic simulations, including file uploads and real-time feedback.
-- **VFP-Post Module:** Provides advanced post-processing tools for analyzing simulation results, including contour plotting, boundary layer visualization, and propeller-wing interference modeling.
+## Environment Variables
 
-![VFP Application Home Page](/screenshots/vfp-home.png)
+| Variable | Default | Description |
+| --- | --- | --- |
+| `VITE_API_URL` | (empty = use proxy in dev, auto-detect in prod) | Flask API base URL |
+| `VITE_WS_URL` | `http://127.0.0.1:5000` | WebSocket server URL |
+| `VITE_BASE_PATH` | `/` | Deployment sub-path (set to `/VFP-2025` for GitHub Pages) |
 
-### Geometry Module
+---
 
-The Geometry Module is the starting point for any aerodynamics analysis in VFP. It allows users to interactively manage the wing geometry files, modify the airfoil sections and wing planforms and also allows user to generate VFP input files - Geometry File (.GEO), Mapping File (.MAP) and Flow File (.DAT) achieved by integrating the ESDU's FPCON. 
+## Legacy Code & Migration Notes
 
-#### Salient Features
+The project is in **active migration** from JavaScript (`.jsx`/`.js`) to TypeScript (`.tsx`/`.ts`). The current state:
 
-- **Multiple geometry File Handling**: The Geometry Module allows users to import and manage multiple .GEO files within a single session. This enables direct comparison of different wing configurations side-by-side. Upon upload, each geometry file is parsed and converted into two key data structures: geoData (containing the raw geometry parameters and section details) and plotData (a JSON object optimized for visualization). This architecture supports rapid switching between files and facilitates comparative design analysis.
+| Layer | Status |
+| --- | --- |
+| `types/` | ✅ Fully TypeScript |
+| `api/` | ✅ Fully TypeScript (new layer) |
+| `hooks/` | ✅ Fully TypeScript |
+| `store/` | ✅ Fully TypeScript |
+| `components/` | ⚠️ Mostly `.jsx`/`.js` — migration in progress |
+| `utils/` | ⚠️ All `.js` — to be converted |
 
-- **Interactive Visualization**: Visualization is powered by Plotly JS, integrated through dedicated React components (Plot2D and Plot3D). Users can interactively explore both 2D planform and 3D wing representations, with features such as save plot to .PNG, and plot interactions such as zoom, pan and rotate. Any modifications made to the geometry—whether section parameters or batch improvements—are instantly reflected in the plots, providing immediate visual feedback and validation of design changes.
-  
-- **Section-Based Editing**: The wing geometry is organized as a series of control sections distributed across the span. Each section is characterized by its spanwise position (YSECT), leading (XLE) and trailing edge (ZLE) coordinates, vertical displacement (HSECT), and orientation parameters (TWSIN, XTWSEC). Users can select individual sections and modify their defining parameters with precision, allowing for localized adjustments to the wing configuration.
+**Legacy files being replaced:**
 
-- **Batch Parameter Improvement**: Beyond individual section editing, the module provides interpolation tools for applying systematic variations across multiple sections of the geometry file. Current version of the VFP application allows users linear and quadratic interpolation schemes on twist, dihedral and leading edge. This functionality allows user to optimse the wing planform for maximum performance. 
-  
-- **Automatic Wing Specification Calculation**: The module continuously computes and displays essential wing metrics based on the current geometry definition. These include fundamental parameters such as aspect ratio, reference span, planform area, taper ratio, and the total number of control sections. This real-time feedback ensures that users maintain awareness of how their modifications affect overall wing characteristics.
+- `utils/fetch.js` → `api/client.ts` (typed, error-normalised)
+- `utils/socket.js` → `api/socket.ts` (typed events)
+- `components/vfpDataContext.jsx` → `store/VfpDataContext.tsx`
+- `components/SimulationDataContext.jsx` → `store/SimulationDataContext.tsx`
 
-- **Integrated FPCON Component**: A dedicated interface is provided for generating complete solver input file sets. This component collects geometry specifications along with aerodynamic parameters and section details, then produces properly formatted input files compatible with the computational solver. The integration streamlines the workflow from geometry module to solver module.
+When working on components, prefer importing from the `api/` and `store/` TypeScript modules. The legacy `utils/fetch.js` and `utils/socket.js` should not be used in new code.
 
-#### Specifications of Wing Geometry File
+---
 
-The Geometry file (.GEO) specifies the complete 3D configuration of the wing, and optionally the body for computational analysis. The geometry file is organized hierarchically, beginning with overall control parameters followed by detailed section-by-section specifications. The file starts with a header line that specifies the total number of sections across the span (NSECT) and parameters governing interpolation between these sections.
+## Key Design Decisions
 
-Sections must be specified in order of increasing spanwise coordinate, starting from y = 0 (the configuration centerline and control section, this section has to be on the symmetry plane). Each section is defined by its spatial position (spanwise location YSECT, leading edge coordinate G1SECT, trailing edge coordinate G2SECT, twist angle TWSIN about the chordwise poistion, XTWSEC and vertical displacement HSECT) along with its geometric profile specified by coordinate pairs (XSECT, ZSECT) that trace the section profile. Sections can be marked to indicate whether their coordinate distribution differs from the adjacent inboard section (IMARK parameter), enabling efficient data specification by allowing coordinate reuse where appropriate.
-
-When a body is present in the configuration, its geometry is specified through a series of stations distributed along the streamwise axis. Each station provides the streamwise coordinate (XRAD) and corresponding body radius (RAD). The body is assumed to possess rotational symmetry about the streamwise axis. Setting NRAD = 0 indicates a wing-alone case with no body present.
-
-**Several important constraints govern the geometry specification:**
-
-- The geometry file extension is case sensitive, i.e., .GEO is the accepted file format for the VFP application
-- The total number of control sections must satisfy: 2 ≤ NSECT ≤ 38
-- Sections must start at y = 0 and finish at the true wing tip
-- For wing-body configurations, sections are defined from the centerline, not from the wing-body junction
-- Maximum coordinate pairs per surface: 125 for upper (MU) and 125 for lower (ML)
-
-
-> **Note** - For detailed specification of the .GEO file format, including line types, parameter definitions, interpolation methods, and formatting requirements, users are strongly encouraged to refer to Section 4.1 (Specification of the Geometry File, GEO.DAT) in the ESDU 02014 [^1] document.
-
-The Geometry Module streamlines interaction with this file structure by providing an intuitive interface for viewing and modifying these parameters without requiring direct file editing or detailed knowledge of the underlying format conventions.
-
-#### Modifying Wing Planform Parameters (Compute Desired Function)
-
-Compute Desired Function, in the controls panel, allows the user to modify the sections of the wing geometry. Follow the steps below to modify the wing sections: 
-
-- **Step 1: Import and Select Geometry File**  
-  Import the  geometry file into the Geometry Module. If more than one geometry files are uploaded in the module, then use the 3D Plot File dropdown menu in the Plot Options panel to select the desired geometry file.  
-
-- **Step 2: Choose a Wing Section**  
-  Use the Section dropdown in the Plot Options panel to choose the specific wing section that needs to be modified. The Controls panel on the left, will show the baseline (original) values for all editable parameters of the selected section. Make sure the controls panel displays the correct geometry file and section on the top of the parameter field. Toggle the Section 2D plot in the Plot Type Panel to display the section in the Plot2D component and untick any other geometry file in the 2D Plot Files chekcboxes to focus only on the desired wing geometry. 
-- **Step 3: Edit Section Parameters**  
-  In the Controls Panel, enter new values for desired parameters such as: Twist, Dihedral, YECT, XLE, XTE and Chord.
-
-- **Step 4: Applying Changes**  
-  - After entering your modifications, click Compute Desired.  It is recommended that when modifying YSECT, XLE, XTE or chord, toggle the planform view in the Plot Options panel (right) so that the user can see the modification reflecting in the planform shape. It has to be noted that modifying the twist rotates the section coordinates about the XTWSEC value of that section.
-  
-  - The updated parameters are sent to the backend, which recalculates the geometry and updates both the `geoData` and `plotData` structures. The changes appear instantly in the Plot2D component an wing specifications panel, enabling immediate feedback on your edits.
-
-- **Step 5: Review Updated Geometry**  
-  Examine the wing section using the plot2D component by selecting the "Section" plot type in the plot type. Users can also select "Twist" or "Dihedral" as plot type, to analyse the twist or dihedral of the wing planform. The modified plot will be shown as a dashed line. You may switch between sections or files to compare modifications.
-
-- **Step 6: Exporting and Reset**  
-  Once the desired modifications are applied to the wing sections, users can click on Export GEO File option to export the geometry file (.GEO), which can be direclty taken to the solver module, with appropriate mapping and flow file. To discard all changes and revert the geometry to its original state, click Reset.
-
-> **Note:** The Reset button erases all modifications made during the session, including changes to sections other than the currently selected one. This action restores the geometry file to its baseline state, so use it with caution if you have made multiple edits.
-
-![Compute Desired Function](/screenshots/compute-desired.png)
-
-
-#### Improving Wing Planform Parameters (Improve Function)
-
-The Improve Function enables users to apply systematic, batch modifications to wing section parameters using linear or quadratic interpolation. This is particularly useful for optimizing twist, dihedral, or leading edge position across a range of sections. Follow the steps below to use the Improve Function effectively:
-
-- **Step 1: Import and Select Geometry File**  
-  Import the desired geometry file into the Geometry Module. If multiple geometry files are present, use the 3D Plot File dropdown in the Plot Options panel to select the file you wish to improve.
-
-- **Step 2: Choose Parameter and Section Range**  
-  In the Improve panel, select the parameter to be improved (Twist, Dihedral, or X Leading Edge) from the dropdown menu. Specify the start and end sections for the interpolation. This defines the range over which the improvement will be applied.
-
-- **Step 3: Set Interpolation Method and Value**  
-  Choose the interpolation method—linear or quadratic—by entering the coefficient `a` for quadratic interpolation (leave as zero for linear). The formula used is `y = ax² + bx + c`, allowing for both linear and quadratic transitions. Adjust the value as needed to achieve the desired gradient or curvature in the parameter across the selected sections.
-
-- **Step 4: Apply Improvement**  
-  Click the **Improve** button to apply the interpolation. The backend processes the request, recalculates the geometry, and updates both the `geoData` and `plotData` structures. The changes are instantly reflected in the Plot2D and Plot3D components, providing immediate visual feedback on the improved parameter distribution.
-
-- **Step 5: Review Improved Geometry**  
-  Use the plot2D and plot3D components to inspect the updated wing geometry. Select relevant plot types (e.g., Twist or Dihedral) to analyze the effect of the improvement across the span. The modified parameter profile will be shown as a dashed line, allowing for easy comparison with the baseline.
-
-- **Step 6: Exporting and Reset**  
-  After confirming the improvements, you can export the updated geometry file using the Export GEO File option. If you wish to discard all batch changes and revert to the original geometry, click the **Reset** button.
-
-> **Note:**- The Reset button in the main module erases all geometry edits—including section data—restoring the baseline state. Use with caution to avoid data loss during multi-step inputs.
-
-
-#### FPCON - Generating VFP Input Files
-
-The FPCON (Full Potential CONfiguration) component enables users to generate the VFP input files, provided the users have the wing planform section data. The approach follows a parameter-driven, section-based workflow as described in Section 5 in ESDU 02014 [^1] for wing geometry definition.
-
-
-![FPCON](/screenshots/fpcon.png)
-
-
-- **Overview of the Interface:**  
-The FPCON (Full Potential CONfiguration) Wing Geometry Input is an integral component for defining aerodynamic wing parameters in a structured, section-based manner. The input dialog collects both global geometry settings—such as aspect ratio, sweep angle, Mach number, and number of wing sections—and detailed section data via a tabular interface (covering values like Etas, HSECT, twist, and local incidence). Users can enter parameters manually then submit the configuration for geometry calculation and download teh files once the calculation is complete.
-
-
-##### Important Notes and Best Practices
-
-- Specify all mandatory fields, as incomplete submissions may result in errors or failed computations.
-- To modify or refine geometry, return to the FPCON panel, update parameters, and resubmit as needed.
-- Using multiple sections (higher NSECT) allows for more accurate representation of non-planar or non-uniform wings.
-- For parametric studies, duplicate previously successful configurations and change one parameter at a time for best traceability.
- 
-## References
-
-[^1]: Full-potential (FP) method for three-dimensional wings and wing-body combinations – inviscid flow Part 2: Use of FP and related programs ESDU 02014
+| Decision | Rationale |
+| --- | --- |
+| **React Context over Redux** | Small to medium state complexity; avoids external dependency; two contexts suffice for the current domain model |
+| **Lazy-loaded routes** | Plotly.js and Three.js are large libraries; lazy loading keeps the initial bundle small |
+| **Streaming JSON parsers** | VFP result files routinely exceed 100 MB; `JSON.parse()` would crash the browser; streaming + IndexedDB keeps memory bounded |
+| **Separate IndexedDB stores** | Continuation-run dumps and post-processing results have different lifecycles; separate DBs avoid accidental data loss |
+| **Polling-only in dev** | Werkzeug (Flask dev server) cannot upgrade HTTP to WebSocket; production uses eventlet with full WebSocket support |
+| **Chunk splitting** | Plotly (~3 MB), Three.js, D3, and React are split into separate vendor chunks for better caching and parallel loading |
+| **`allowJs: true`** | Enables incremental migration of `.jsx` components to `.tsx` without blocking development |
+| **No component library** | Domain-specific visualisation (Plotly, Three.js, D3) doesn't benefit from generic UI kits; Tailwind provides sufficient styling |
