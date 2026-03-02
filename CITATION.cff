@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+title: "FlowVFP — Viscous Full Potential Flow Solver"
+message: "If you use this software, please cite it using these metadata."
+type: software
+version: "2.0.0"
+date-released: "2026-03-02"
+url: "https://ramtarun02.github.io/VFP-2025"
+repository-code: "https://github.com/ramtarun02/FlowVFP"
+license: "Cranfield University Academic License"
+authors:
+  - family-names: TA
+    given-names: Tarun Ramprakash
+    alias: ramtarun02
+    affiliation: "Cranfield University"
+keywords:
+  - aerodynamics
+  - transonic flow
+  - viscous full potential
+  - CFD
+  - wing design
+  - boundary layer
+  - ESDU
+  - FlowVFP
+abstract: >-
+  FlowVFP is a browser-based aerodynamic analysis application for transonic
+  aircraft design. It provides an interactive web interface to the ESDU
+  Viscous Full Potential (VFP) solver, replacing the legacy MATLAB/CLI
+  workflow with a modern, collaborative, cross-platform solution. Developed
+  as part of an MSc by Research project at Cranfield University.

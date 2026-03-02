@@ -1,8 +1,8 @@
 # Cranfield University Academic License
 
-Copyright (c) 2025–2026 Tarun Ramprakash. All rights reserved.
+Copyright (c) 2025–2026 Tarun Ramprakash TA. All rights reserved.
 
-This software was developed as part of an MSc thesis at Cranfield University,
+This software was developed as part of an MSc by research project "Improve a Viscous Full Potential Flow Solver for transonic aircraft design" at Cranfield University,
 United Kingdom.
 
 TERMS AND CONDITIONS
@@ -31,9 +31,10 @@ TERMS AND CONDITIONS
    Any academic work (publications, reports, theses, presentations) that
    uses or references this Software must include the following citation:
 
-      Ramprakash, T. (2025). FlowVFP: A Web-Based Viscous Full Potential
-      Flow Solver for Transonic Aircraft Design. MSc Thesis, Cranfield
-      University.
+      Ramprakash TA, Tarun. (2026). FlowVFP: A Web-Based Viscous Full
+      Potential Flow Solver for Transonic Aircraft Design [Software].
+      Version 2.0.0. Cranfield University.
+      https://github.com/ramtarun02/FlowVFP
 
 4. NO WARRANTY
 
