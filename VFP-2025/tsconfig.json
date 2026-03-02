@@ -1,0 +1,56 @@
+{
+  "compilerOptions": {
+    /* Language and environment */
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+
+    /* Modules */
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+
+    /* Emit */
+    "noEmit": true,
+
+    /* Vite client types (import.meta.env, etc.) */
+    "types": ["vite/client"],
+
+    /* Allow legacy .js component imports from .tsx */
+    "allowJs": true,
+
+    /* Interop */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Type-checking strictness */
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": false,
+
+    /* Paths */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@api/*": ["src/api/*"],
+      "@components/*": ["src/components/*"],
+      "@hooks/*": ["src/hooks/*"],
+      "@types/*": ["src/types/*"],
+      "@utils/*": ["src/utils/*"],
+      "@store/*": ["src/store/*"]
+    },
+
+    /* Source maps */
+    "sourceMap": true,
+
+    /* Skip lib checking for third-party types */
+    "skipLibCheck": true
+  },
+  "include": ["src", "tests"],
+  "exclude": ["node_modules", "build", "dist"]
+}
