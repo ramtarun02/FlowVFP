@@ -1,0 +1,57 @@
+# Cranfield University Academic License
+
+Copyright (c) 2025–2026 Tarun Ramprakash. All rights reserved.
+
+This software was developed as part of an MSc thesis at Cranfield University,
+United Kingdom.
+
+TERMS AND CONDITIONS
+
+1. PERMITTED USE
+
+   This software and associated documentation ("Software") may be used,
+   copied, and modified by students, staff, and researchers of Cranfield
+   University for academic, research, and educational purposes only.
+
+2. RESTRICTIONS
+
+   a. The Software may NOT be used, copied, distributed, sublicensed, or
+      made available to any individual or organisation outside Cranfield
+      University without the prior written consent of the copyright holder.
+
+   b. The Software may NOT be used for commercial purposes without the
+      prior written consent of the copyright holder.
+
+   c. The Software may NOT be redistributed, published, or hosted publicly
+      in any form (source code or compiled) without the prior written
+      consent of the copyright holder.
+
+3. ATTRIBUTION
+
+   Any academic work (publications, reports, theses, presentations) that
+   uses or references this Software must include the following citation:
+
+      Ramprakash, T. (2025). FlowVFP: A Web-Based Viscous Full Potential
+      Flow Solver for Transonic Aircraft Design. MSc Thesis, Cranfield
+      University.
+
+4. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES,
+   OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+5. TERMINATION
+
+   This license is automatically terminated if any of the above terms are
+   violated. Upon termination, all copies of the Software must be deleted.
+
+6. CONTACT
+
+   For permissions, licensing enquiries, or collaboration requests, contact
+   the copyright holder via the repository:
+
+      <https://github.com/ramtarun02>
+
