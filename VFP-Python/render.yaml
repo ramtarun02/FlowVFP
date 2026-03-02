@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: vfp-python-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHONPATH
+        value: /app/src:/app
+      - key: WINEPREFIX
+        value: /app/.wine
+      - key: DISPLAY
+        value: ":99"
+      - key: SECRET_KEY
+        generateValue: true
+    disk:
+      name: vfp-data
+      mountPath: /app/data

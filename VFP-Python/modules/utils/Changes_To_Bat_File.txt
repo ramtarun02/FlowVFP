@@ -1,0 +1,62 @@
+
+Technical Differences Between Interactive and Non-Interactive VFP Batch Scripts
+
+1. Interactivity vs Argument Parsing
+- Original Script (interactive): Uses `set /p` to request user input during execution (e.g. map name, geometry, flow file).
+- New Script (non-interactive): Takes all necessary inputs via command-line arguments:
+  set "_map=%~1"
+  set "_geo=%~2"
+  set "_flow=%~3"
+  set "_excres=%~4"
+  set "_cont=%~5"
+  set "_dump=%~6"
+
+2. File Existence Checks
+- Original: Uses `if not exist ... goto :label` and loops back to re-request input.
+- New: Performs `if not exist ... exit /b 1`, and exits early if files are missing. Also validates whether mandatory arguments are passed:
+  if "%_map%"=="" (
+    echo Usage: ...
+    exit /b 1
+  )
+
+3. Flow File Generation
+- Original: Contains logic to generate flow files interactively using visflow.exe, vfpfusegenv2.exe, vfptvkbodyv8.exe, based on user input like fuselage presence.
+- New: Does not include any logic for generating flow files — assumes %_flow%.dat already exists and validates its existence.
+
+4. Excrescence Handling
+- Original: Prompts user interactively whether this is an excrescence run, and requests filename if yes.
+- New: Only checks if %_excres% is "y", but does not copy or process any excrescence file (it's a placeholder with a warning but no actual file handling logic).
+
+5. Continuation Run Logic
+- Original:
+  - Asks interactively whether it's a continuation run.
+  - If same Mach/alpha: auto-generates dump filename based on %_geo%%_flow%.
+  - Else: requests separate dump base name via set /p.
+- New:
+  - If %_cont% is "y":
+    - Requires %_dump% to be passed.
+    - Verifies dump files exist.
+    - Copies the full set of fortXX files without distinction between "same Mach/alpha" and general continuation.
+
+6. `pause` Statements
+- Original: Contains multiple pause statements throughout for user interaction.
+- New: Contains no pause commands — script is fully automatic.
+
+7. Wave Drag Preparation
+- Original:
+  - Includes pause before f137b1.exe.
+  - Has a commented-out copy command:
+    :copy wavedrg.dat wavedrg72.dat
+- New:
+  - Skips any use of wavedrg72.dat or related copy step.
+  - Directly copies fort.70/71 and runs f137b1.exe.
+
+8. Final Cleanup
+- Original: Deletes each file with separate del commands.
+- New: Deletes multiple files using ^ for line continuation in a single del command block:
+  del fort.11 fort.15 ... wavedrg76.dat
+
+
+Author:
+-------
+Christos Koumtzis
