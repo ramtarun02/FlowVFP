@@ -106,24 +106,15 @@ def add_paths_to_sys(config):
             sys.path.insert(0, path)
 
 def validate_socket_config():
-    """Validate that socket configuration is importable"""
-    try:
-        # Try importing from both possible locations
-        try:
-            from src.config.socket_config import socket_config
-            return True, socket_config
-        except ImportError:
-            from config.socket_config import socket_config
-            return True, socket_config
-    except ImportError as e:
-        return False, f"Could not import socket_config: {e}"
-    except Exception as e:
-        return False, f"Error with socket_config: {e}"
+    """Socket.IO is now configured inside the application factory; nothing to validate separately."""
+    return True, None
 
 def validate_flask_app():
-    """Validate that the main Flask app is importable"""
+    """Validate that the main Flask app is importable via the application factory"""
     try:
-        from src.app import app, socketio
+        from src.factory import create_app
+        from src.extensions import socketio
+        app = create_app()
         return True, (app, socketio)
     except ImportError as e:
         return False, f"Could not import Flask app: {e}"
@@ -156,31 +147,8 @@ def main():
             value = os.environ.get(var, 'Not Set')
             logger.info(f"  {var}: {value}")
     
-    # Validate socket configuration
-    socket_valid, socket_result = validate_socket_config()
-    if not socket_valid:
-        logger.error(f"Socket configuration validation failed: {socket_result}")
-        print(f"❌ Error: {socket_result}")
-        print("Please ensure socket_config.py exists in src/config/ or config/ directory")
-        
-        # List available files for debugging
-        try:
-            src_config_dir = config['site_root'] / 'src' / 'config'
-            config_dir = config['site_root'] / 'config'
-            
-            if src_config_dir.exists():
-                files = list(src_config_dir.iterdir())
-                logger.info(f"Files in src/config/: {[f.name for f in files]}")
-            
-            if config_dir.exists():
-                files = list(config_dir.iterdir())
-                logger.info(f"Files in config/: {[f.name for f in files]}")
-                
-        except Exception as debug_error:
-            logger.error(f"Could not list directories: {debug_error}")
-        
-        sys.exit(1)
-    
+    # Validate socket configuration (now always passes – configured in factory)
+    socket_valid, _ = validate_socket_config()
     logger.info("✓ Socket configuration validated successfully")
     
     # Validate Flask application

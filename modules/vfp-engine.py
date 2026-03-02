@@ -334,16 +334,54 @@ def write_dump_files_from_split_json(project_root, upload_id, split_file_name, s
     logger.info("Restored dump files from split JSON %s into %s", split_file_name, sim_dir)
     return dump_base
 
+def write_dump_files_from_payload(cont_dump_data: dict, sim_dir: str) -> str:
+    """Write fort dump files delivered inline in continuationDumpData.
+
+    The frontend stores only the seven fort files (fort11/15/21/50/51/52/55)
+    in IndexedDB and sends them as ``continuationDumpData.files`` – a mapping
+    of ``{filename: {data: str, encoding: 'utf-8'|'base64'}}``.
+    Returns the dump base stem (filename without extension).
+    """
+    files = cont_dump_data.get("files", {})
+    if not files:
+        raise ValueError("continuationDumpData.files is empty")
+    required_exts = {".fort11", ".fort15", ".fort21", ".fort50", ".fort51", ".fort52", ".fort55"}
+    dump_base = None
+    for fname, meta in files.items():
+        dest_path = Path(sim_dir) / fname
+        encoding = meta.get("encoding", "utf-8")
+        data = meta.get("data", "")
+        if encoding == "base64":
+            dest_path.write_bytes(base64.b64decode(data))
+        else:
+            dest_path.write_text(data, encoding="utf-8")
+        logger.debug("Wrote dump file from payload: %s", dest_path)
+        if dump_base is None and dest_path.suffix.lower() in required_exts:
+            dump_base = dest_path.stem
+    if dump_base is None:
+        raise ValueError(
+            f"No fort dump files found in continuationDumpData.files. Got: {list(files.keys())}"
+        )
+    logger.info("Wrote %d dump files from payload, base: %s", len(files), dump_base)
+    return dump_base
+
+
 def run_vfp_continuation(sim_dir, vfp_data, config_key, dumpFileName):
     logger.info("Starting VFP continuation for %s using dump %s", config_key, dumpFileName)
     form_data = vfp_data.get("formData", {}) if isinstance(vfp_data, dict) else {}
     upload_id = form_data.get("uploadId")
     simName = vfp_data.get("formData", {}).get("simName", "unknownSim")
     split_file = form_data.get("continuationSplitFile")
+    cont_dump_data = form_data.get("continuationDumpData")
 
-    if upload_id and split_file:
+    if cont_dump_data and cont_dump_data.get("configKey") == config_key:
+        # Case 4 (new): dump files delivered inline from browser IndexedDB
+        dump_base = write_dump_files_from_payload(cont_dump_data, sim_dir)
+    elif upload_id and split_file:
+        # Case 3: large file uploaded to server – dump files in split-json
         dump_base = write_dump_files_from_split_json(project_root, upload_id, split_file, sim_dir)
     else:
+        # Case 2: small file – full results embedded in vfpData
         vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileName)
         dump_base = None
     bat_path = os.path.join(sim_dir, "cmdvfp.bat")
@@ -1287,9 +1325,13 @@ if auto_runner:
 
 elif continuation:
     logger.info("Continuation mode enabled")
-    _upload_id = vfpData["formData"].get("uploadId")
+    _upload_id   = vfpData["formData"].get("uploadId")
+    _cont_dump   = vfpData["formData"].get("continuationDumpData")  # Case 4: inline payload
     if "wingConfig" in vfpData.get("inputFiles", {}):
-        if _upload_id:
+        if _cont_dump and _cont_dump.get("configKey") == "wingConfig":
+            # Case 4: dump files delivered inline from browser IndexedDB selection
+            dumpFileName = _cont_dump.get("flowKey")
+        elif _upload_id:
             # Case 3: large file uploaded to server – dump files are in split-json
             dumpFileName = vfpData["formData"].get("continuationSplitKey")
         else:
@@ -1301,7 +1343,10 @@ elif continuation:
         "tailConfig" in vfpData.get("inputFiles", {}) and
         vfpData["inputFiles"]["tailConfig"]["fileNames"].get("DatFile")
     ):
-        if _upload_id:
+        if _cont_dump and _cont_dump.get("configKey") == "tailConfig":
+            # Case 4: dump files delivered inline from browser IndexedDB selection
+            dumpFileName = _cont_dump.get("flowKey")
+        elif _upload_id:
             # Case 3: large file uploaded to server – dump files are in split-json
             dumpFileName = vfpData["formData"].get("continuationSplitKey")
         else:
