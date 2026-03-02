@@ -22,6 +22,14 @@ FlowVFP is a browser-based aerodynamic analysis application for transonic aircra
   - [Getting Started](#getting-started)
     - [For End Users (No Installation Required)](#for-end-users-no-installation-required)
     - [For Local Development](#for-local-development)
+      - [Prerequisites](#prerequisites)
+      - [Step 1: Clone the Repository](#step-1-clone-the-repository)
+      - [Step 2: Backend Setup (VFP-Python)](#step-2-backend-setup-vfp-python)
+      - [Step 3: Frontend Setup (VFP-2025)](#step-3-frontend-setup-vfp-2025)
+      - [Step 4: Verify the Setup](#step-4-verify-the-setup)
+      - [Common Issues and Troubleshooting](#common-issues-and-troubleshooting)
+      - [Development Workflow](#development-workflow)
+      - [Additional Resources](#additional-resources)
   - [Wing Geometry File Format](#wing-geometry-file-format)
   - [Supported File Types](#supported-file-types)
   - [Example Case](#example-case)
@@ -242,32 +250,225 @@ The application runs entirely in the browser. You need a modern web browser (Chr
 
 ### For Local Development
 
-Refer to the developer documentation in each sub-project:
+Follow these instructions to set up and run FlowVFP on your local machine for development or testing purposes.
 
-- [VFP-2025/README.md](VFP-2025/README.md) — Frontend setup, architecture, and development guide
-- [VFP-Python/README.md](VFP-Python/README.md) — Backend setup, architecture, and API reference
+#### Prerequisites
 
-**Quick-start summary:**
+Ensure you have the following installed on your system:
 
-| Prerequisite | Version |
-| --- | --- |
-| Node.js | ≥ 20 LTS |
-| Python | ≥ 3.11 |
-| pip | ≥ 23 |
+| Prerequisite | Version | Download Link |
+| --- | --- | --- |
+| **Node.js** | ≥ 20 LTS | [https://nodejs.org/](https://nodejs.org/) |
+| **Python** | ≥ 3.11 | [https://www.python.org/downloads/](https://www.python.org/downloads/) |
+| **pip** | ≥ 23 | Included with Python 3.11+ |
+| **Git** | Latest | [https://git-scm.com/downloads](https://git-scm.com/downloads) |
+
+**Optional but recommended:**
+
+- **Visual Studio Code** — with Python and ESLint extensions
+- **Windows**: Visual Studio Build Tools (for some Python packages)
+- **macOS/Linux**: GCC or Clang (for some Python packages)
+
+#### Step 1: Clone the Repository
 
 ```bash
-# 1. Backend
-cd VFP-Python
-python -m venv .venv
-.venv\Scripts\activate            # Windows
-pip install -r requirements.txt
-python wsgi.py                    # → http://127.0.0.1:5000
-
-# 2. Frontend (in a separate terminal)
-cd VFP-2025
-npm install
-npm run dev                       # → http://localhost:3000
+git clone https://github.com/yourusername/FlowVFP.git
+cd FlowVFP
 ```
+
+#### Step 2: Backend Setup (VFP-Python)
+
+The backend is a Python Flask application that provides REST APIs and WebSocket support for the VFP solver.
+
+1. **Navigate to the backend directory:**
+
+   ```bash
+   cd VFP-Python
+   ```
+
+2. **Create and activate a virtual environment:**
+
+   **Windows:**
+
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
+   ```
+
+   **macOS/Linux:**
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. **Install dependencies:**
+
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+   This installs Flask, Flask-SocketIO, NumPy, SciPy, Pandas, and other required packages.
+
+4. **Configure environment variables (optional):**
+
+   Create a `.env` file in the `VFP-Python/` directory to customize settings:
+
+   ```env
+   FLASK_ENV=development
+   FLASK_DEBUG=1
+   SECRET_KEY=your-secret-key-here
+   CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+   MAX_UPLOAD_SIZE=104857600  # 100 MB
+   ```
+
+5. **Start the backend server:**
+
+   ```bash
+   python wsgi.py
+   ```
+
+   The server will start at <http://127.0.0.1:5000>
+
+   You should see output similar to:
+
+   ```text
+    * Running on http://127.0.0.1:5000
+    * Restarting with stat
+   ```
+
+6. **Verify the backend is running:**
+
+   Open a browser and navigate to <http://127.0.0.1:5000/health>
+
+   You should see: `{"status": "healthy"}`
+
+#### Step 3: Frontend Setup (VFP-2025)
+
+The frontend is a React TypeScript application built with Vite.
+
+1. **Open a new terminal** and navigate to the frontend directory:
+
+   ```bash
+   cd VFP-2025
+   ```
+
+2. **Install dependencies:**
+
+   ```bash
+   npm install
+   ```
+
+   This installs React, TypeScript, Vite, Tailwind CSS, Plotly, Three.js, Socket.IO client, and other dependencies.
+
+3. **Configure API endpoint (if needed):**
+
+   The frontend is configured to connect to the backend at `http://127.0.0.1:5000` by default. If you changed the backend port, update the API configuration in:
+
+   - [src/api/client.ts](VFP-2025/src/api/client.ts)
+   - [src/api/socket.ts](VFP-2025/src/api/socket.ts)
+
+4. **Start the development server:**
+
+   ```bash
+   npm run dev
+   ```
+
+   The application will start at <http://localhost:5173> (default Vite port)
+
+   You should see output similar to:
+
+   ```text
+   VITE v5.x.x  ready in xxx ms
+
+   ➜  Local:   http://localhost:5173/
+   ➜  Network: use --host to expose
+   ```
+
+5. **Open the application:**
+
+   Navigate to <http://localhost:5173> in your browser.
+
+   You should see the FlowVFP landing page.
+
+#### Step 4: Verify the Setup
+
+1. **Test Geometry Module:**
+   - Click on "Geometry Module" in the navigation
+   - Try importing a sample `.GEO` file from `examples/Wing1/DC304_v2p9_twist_BSL.GEO`
+   - Verify that 2D and 3D plots render correctly
+
+2. **Test Solver Module:**
+   - Navigate to "Solver Module"
+   - Upload the example files (GEO, MAP, DAT) from `examples/Wing1/`
+   - Click "Run Simulation" and verify live terminal output appears via WebSocket
+   - **Note:** The simulation will only run if VFP solver executables are properly installed
+
+3. **Test Post-Processing Module:**
+   - Navigate to "VFP-Post"
+   - Upload a `.vfp` result file (run a simulation first or use a sample file)
+   - Verify Cp plots, force distributions, and boundary-layer data display correctly
+
+#### Common Issues and Troubleshooting
+
+| Issue | Solution |
+| --- | --- |
+| **Backend won't start** — "Address already in use" | Another process is using port 5000. Kill it: `netstat -ano \| findstr :5000` then `taskkill /PID <PID> /F` (Windows) or `lsof -ti:5000 \| xargs kill` (macOS/Linux) |
+| **Python packages fail to install** | Install Visual Studio Build Tools (Windows) or run `sudo apt install python3-dev` (Linux) |
+| **Frontend can't connect to backend** | Check CORS settings in `VFP-Python/src/config.py` — add `http://localhost:5173` to allowed origins |
+| **VFP solver not found** | Ensure executables are in `VFP-Python/tools/vfp/` and have execute permissions (`chmod +x` on Unix) |
+| **WebSocket connection fails** | Check firewall settings; ensure port 5000 is not blocked |
+| **3D plots not rendering** | Enable WebGL in browser settings; update graphics drivers |
+| **Large files fail to upload** | Increase `MAX_UPLOAD_SIZE` in backend config; check browser memory |
+
+#### Development Workflow
+
+**Running tests:**
+
+```bash
+# Backend tests
+cd VFP-Python
+pytest tests/
+
+# Frontend tests
+cd VFP-2025
+npm test
+```
+
+**Code formatting and linting:**
+
+```bash
+# Backend
+cd VFP-Python
+black src/ tests/        # Format Python code
+flake8 src/ tests/       # Lint Python code
+
+# Frontend
+cd VFP-2025
+npm run lint             # ESLint
+npm run format           # Prettier
+```
+
+**Building for production:**
+
+```bash
+# Backend (no build needed — Python)
+# Just ensure all dependencies are in requirements.txt
+
+# Frontend
+cd VFP-2025
+npm run build            # Creates optimized build in dist/
+npm run preview          # Preview production build
+```
+
+#### Additional Resources
+
+For detailed architecture, API documentation, and advanced configuration:
+
+- [VFP-2025/README.md](VFP-2025/README.md) — Frontend architecture, component guide, and development practices
+- [VFP-Python/README.md](VFP-Python/README.md) — Backend architecture, API reference, and deployment guide
+- [VFP-Python/docs/API.md](VFP-Python/docs/API.md) — Complete REST API and WebSocket protocol documentation
 
 ---
 
