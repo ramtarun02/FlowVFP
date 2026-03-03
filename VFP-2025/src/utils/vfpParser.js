@@ -38,6 +38,9 @@ const CHUNK_SIZE = 64 * 1024; // 64 KB read chunks
  * Stream-parse `file` extracting formData, inputFiles, and fort dump files.
  *
  * @param {File} file  — The .vfp File object from an <input type="file">
+ * @param {Object} [options]
+ * @param {(progress: {bytesRead: number, totalBytes: number, percent: number, stage: string}) => void} [options.onProgress]
+ *   Optional callback invoked periodically with parsing progress.
  * @returns {Promise<{
  *   formData:    object|null,
  *   inputFiles:  object|null,
@@ -47,7 +50,7 @@ const CHUNK_SIZE = 64 * 1024; // 64 KB read chunks
  * Side-effect: stores fort files in IndexedDB (vfpStorage) and clears any
  * previously stored dump data before starting.
  */
-export async function streamParseVfpFile(file) {
+export async function streamParseVfpFile(file, { onProgress } = {}) {
   // Clear any previously stored dump data up-front
   await vfpStorage.clear();
 
@@ -136,9 +139,11 @@ export async function streamParseVfpFile(file) {
     parser.onEnd = () => {
       (async () => {
         try {
+          if (onProgress) onProgress({ bytesRead: totalBytes, totalBytes, percent: 100, stage: 'indexing' });
           for (const [configKey, flowMap] of Object.entries(dumpBuffer)) {
             await vfpStorage.storeConfigResults(configKey, flowMap);
           }
+          if (onProgress) onProgress({ bytesRead: totalBytes, totalBytes, percent: 100, stage: 'complete' });
           resolve({ formData, inputFiles, flowKeyMeta });
         } catch (err) {
           reject(err);
@@ -154,6 +159,8 @@ export async function streamParseVfpFile(file) {
     // option defaults to undefined which triggers that self-termination.
     // We must NOT call parser.end() if the parser already ended itself, or it
     // throws "Tokenizer ended in the middle of a token (state: ENDED)".
+    const totalBytes = file.size;
+    let bytesRead = 0;
     (async () => {
       const reader = file.stream().getReader();
       try {
@@ -169,6 +176,11 @@ export async function streamParseVfpFile(file) {
           // Remaining stream data is trailing whitespace — safe to discard.
           if (parser.isEnded) { reader.cancel(); break; }
           parser.write(value);
+          bytesRead += value.byteLength;
+          if (onProgress) {
+            const percent = totalBytes > 0 ? Math.min(99, Math.round((bytesRead / totalBytes) * 100)) : 0;
+            onProgress({ bytesRead, totalBytes, percent, stage: 'parsing' });
+          }
         }
       } catch (err) {
         reject(err);

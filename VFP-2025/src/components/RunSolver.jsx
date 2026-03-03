@@ -258,6 +258,10 @@ const RunSolver = () => {
   const [errors,    setErrors]     = useState({});
   const bodyInputRef = useRef(null);
 
+  // ── Upload / parsing progress state ────────────────────────────────────────
+  const [importProgress, setImportProgress] = useState({ percent: 0, stage: '', bytesRead: 0, totalBytes: 0 });
+  const [submitProgress, setSubmitProgress] = useState({ percent: 0, stage: '' });
+
   // ── Continuation / import state (from legacy runSolver.js) ────────────────
   const [continuationKeys,          setContinuationKeys]          = useState([]);
   const [continuationKeyToFile,     setContinuationKeyToFile]     = useState({});
@@ -317,19 +321,19 @@ const RunSolver = () => {
   // ── Incomplete-config validation (reactive) ────────────────────────────────
   useEffect(() => {
     const wingPresent = !!(wingFiles.GeoFile || wingFiles.MapFile || wingFiles.DatFile);
-    const tailPresent = !!(tailFiles.GeoFile || tailFiles.MapFile || tailFiles.DatFile);
+    const tailPresent = includeTail && !!(tailFiles.GeoFile || tailFiles.MapFile || tailFiles.DatFile);
     const bodyPresent = bodyFiles.length > 0;
-    if (tailPresent && !bodyPresent) {
+    if (includeTail && tailPresent && !bodyPresent) {
       setIncomplete(true);
       setWarningMsg("For a Wing/Tail simulation you must also upload at least one Body/Spec file.");
-    } else if (tailPresent && bodyPresent) {
+    } else if (includeTail && tailPresent && bodyPresent) {
       setIncomplete(false);
       setWarningMsg("You are attempting a Wing/Tail simulation.");
     } else {
       setWarningMsg("");
       setIncomplete(!wingPresent);
     }
-  }, [wingFiles, tailFiles, bodyFiles]);
+  }, [wingFiles, tailFiles, bodyFiles, includeTail]);
 
   // ── Save Draft ─────────────────────────────────────────────────────────────
   const handleSaveDraft = useCallback(() => {
@@ -372,6 +376,7 @@ const RunSolver = () => {
     if (!file) return;
 
     setIsLoading(true);
+    setImportProgress({ percent: 0, stage: 'reading', bytesRead: 0, totalBytes: file.size });
     try {
       // ── 1. Stream-parse locally — no size limit ───────────────────────────
       //    The file is fed in 64 KB chunks; only formData, inputFiles, and
@@ -383,7 +388,9 @@ const RunSolver = () => {
         formData:   streamedFormData,
         inputFiles: streamedInputFiles,
         flowKeyMeta,
-      } = await streamParseVfpFile(file);
+      } = await streamParseVfpFile(file, {
+        onProgress: (p) => setImportProgress(p),
+      });
 
       // ── 2. Assemble minimal parsed object for normalizeVfpPayload ─────────
       const parsedMain = {
@@ -450,6 +457,7 @@ const RunSolver = () => {
       alert(err?.message || 'Failed to import .vfp file. Check it is valid JSON.');
     } finally {
       setIsLoading(false);
+      setImportProgress({ percent: 0, stage: '', bytesRead: 0, totalBytes: 0 });
       e.target.value = '';
     }
   };
@@ -495,6 +503,7 @@ const RunSolver = () => {
     }
 
     setIsLoading(true);
+    setSubmitProgress({ percent: 0, stage: 'reading' });
     try {
       // Read all files as text
       const readConfig = async (fileMap) => {
@@ -523,6 +532,7 @@ const RunSolver = () => {
         bodyFileData[entry.name] = await readFileAsText(entry.file);
       }
 
+      setSubmitProgress({ percent: 60, stage: 'building' });
       const vfpPayload = {
         metadata: {
           createdAt: new Date().toISOString(),
@@ -564,13 +574,16 @@ const RunSolver = () => {
         results: null,
       };
 
+      setSubmitProgress({ percent: 90, stage: 'finalizing' });
       setVfpData(vfpPayload);
+      setSubmitProgress({ percent: 100, stage: 'complete' });
       navigate("/simulation");
     } catch (err) {
       console.error("Error preparing simulation:", err);
       setErrors({ submit: `Failed to read files: ${err.message}` });
     } finally {
       setIsLoading(false);
+      setSubmitProgress({ percent: 0, stage: '' });
     }
   };
 
@@ -628,6 +641,133 @@ const RunSolver = () => {
           </div>
         </div>
       </header>
+
+      {/* ── Loading overlay with progress bar ──────────────────────────────── */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 max-w-md w-full mx-4 space-y-6">
+            {/* Title & spinner */}
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <div className="w-12 h-12 rounded-full border-4 border-blue-100 flex items-center justify-center">
+                  <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {importProgress.stage
+                    ? 'Importing VFP File'
+                    : submitProgress.stage
+                      ? 'Preparing Simulation'
+                      : 'Processing…'}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {importProgress.stage === 'reading'  && 'Reading file…'}
+                  {importProgress.stage === 'parsing'  && 'Parsing VFP data…'}
+                  {importProgress.stage === 'indexing'  && 'Indexing dump files…'}
+                  {importProgress.stage === 'complete' && 'Import complete!'}
+                  {submitProgress.stage === 'reading'    && 'Reading input files…'}
+                  {submitProgress.stage === 'building'   && 'Building payload…'}
+                  {submitProgress.stage === 'finalizing' && 'Finalizing…'}
+                  {submitProgress.stage === 'complete'   && 'Launching simulation…'}
+                  {!importProgress.stage && !submitProgress.stage && 'Please wait…'}
+                </p>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            {(() => {
+              const pct = importProgress.stage ? importProgress.percent : submitProgress.percent;
+              const isImport = !!importProgress.stage;
+              return (
+                <div className="space-y-2">
+                  <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-blue-500 to-indigo-500"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>{pct}%</span>
+                    {isImport && importProgress.totalBytes > 0 && (
+                      <span>
+                        {(importProgress.bytesRead / (1024 * 1024)).toFixed(1)} / {(importProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Stage steps */}
+            {importProgress.stage && (
+              <div className="space-y-2">
+                {[
+                  { key: 'reading',  label: 'Reading file' },
+                  { key: 'parsing',  label: 'Parsing JSON stream' },
+                  { key: 'indexing', label: 'Indexing dump files' },
+                  { key: 'complete', label: 'Complete' },
+                ].map(({ key, label }) => {
+                  const stages = ['reading', 'parsing', 'indexing', 'complete'];
+                  const currentIdx = stages.indexOf(importProgress.stage);
+                  const stepIdx    = stages.indexOf(key);
+                  const isDone     = stepIdx < currentIdx;
+                  const isActive   = stepIdx === currentIdx;
+                  return (
+                    <div key={key} className="flex items-center gap-3">
+                      {isDone ? (
+                        <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      ) : isActive ? (
+                        <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full border-2 border-gray-200 flex-shrink-0" />
+                      )}
+                      <span className={`text-sm ${isDone ? 'text-green-700' : isActive ? 'text-blue-700 font-medium' : 'text-gray-400'}`}>
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {submitProgress.stage && (
+              <div className="space-y-2">
+                {[
+                  { key: 'reading',    label: 'Reading input files' },
+                  { key: 'building',   label: 'Building payload' },
+                  { key: 'finalizing', label: 'Finalizing' },
+                  { key: 'complete',   label: 'Launching simulation' },
+                ].map(({ key, label }) => {
+                  const stages = ['reading', 'building', 'finalizing', 'complete'];
+                  const currentIdx = stages.indexOf(submitProgress.stage);
+                  const stepIdx    = stages.indexOf(key);
+                  const isDone     = stepIdx < currentIdx;
+                  const isActive   = stepIdx === currentIdx;
+                  return (
+                    <div key={key} className="flex items-center gap-3">
+                      {isDone ? (
+                        <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      ) : isActive ? (
+                        <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full border-2 border-gray-200 flex-shrink-0" />
+                      )}
+                      <span className={`text-sm ${isDone ? 'text-green-700' : isActive ? 'text-blue-700 font-medium' : 'text-gray-400'}`}>
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="max-w-5xl mx-auto px-6 py-8 space-y-8">

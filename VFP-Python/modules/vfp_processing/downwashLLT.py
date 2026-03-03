@@ -143,7 +143,7 @@ def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
         return np.interp(y, y_sections, c_sections)
 
     def estimate_area(y, c):
-        return np.trapz(c, y)
+        return np.trapezoid(c, y)
 
     S = estimate_area(y_sections, c_sections)
     AR = b**2 / S
@@ -153,7 +153,7 @@ def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
 
     Gamma = 0.5 * V_inf * c_sections * cl_sections
     L_prime = rho_inf * V_inf * Gamma
-    L_total = np.trapz(L_prime, y_sections)
+    L_total = np.trapezoid(L_prime, y_sections)
     CL = L_total / (0.5 * rho_inf * V_inf**2 * S)
 
     # Panel boundaries (spanwise)
@@ -212,7 +212,7 @@ def compute_downwash_LLT(cpFile, geoFile, tailflowInput, save_plots=False):
         local_velocity_vectors[i] = V_local
         local_velocity_magnitudes[i] = np.linalg.norm(V_local)
     epsilon_deg_array = np.degrees(epsilon_t_array)
-    effective_epsilon_rad = np.trapz(epsilon_t_array, y_tail) / (y_tail[-1] - y_tail[0])
+    effective_epsilon_rad = np.trapezoid(epsilon_t_array, y_tail) / (y_tail[-1] - y_tail[0])
     effective_epsilon_deg = np.degrees(effective_epsilon_rad)
     epsilon  = 2 * Cl_VFP / (np.pi * AR * 0.75)
     epsilon_deg = np.degrees(epsilon)
