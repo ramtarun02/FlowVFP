@@ -150,6 +150,31 @@ def _chord(s: dict) -> float:
     return s["G2SECT"] - s["G1SECT"]
 
 
+def _group_consecutive_panels(sweeps: list[float], tolerance: float = 1.5):
+    """
+    Group consecutive panels whose sweep angles are within *tolerance*
+    of the first panel in the group.
+
+    Returns a list of dicts, each with:
+        panels : list[int]  – panel indices in this group
+        sweep  : float      – average sweep of the group
+    """
+    if not sweeps:
+        return []
+
+    groups: list[dict] = [{"panels": [0], "ref": sweeps[0]}]
+    for i in range(1, len(sweeps)):
+        if abs(sweeps[i] - groups[-1]["ref"]) <= tolerance:
+            groups[-1]["panels"].append(i)
+        else:
+            groups.append({"panels": [i], "ref": sweeps[i]})
+
+    for g in groups:
+        g["sweep"] = sum(sweeps[p] for p in g["panels"]) / len(g["panels"])
+
+    return groups
+
+
 def compute_planform(sections: list[dict]) -> dict[str, Any]:
     """
     Derive the wing planform parameters that fpcon expects from section data.
@@ -193,12 +218,26 @@ def compute_planform(sections: list[dict]) -> dict[str, Any]:
         else:
             panel_sweeps.append(0.0)
 
+    # Compute TE sweep per panel
+    te_sweeps: list[float] = []
+    for i in range(len(sections) - 1):
+        dy = sections[i + 1]["YSECT"] - sections[i]["YSECT"]
+        dx = sections[i + 1]["G2SECT"] - sections[i]["G2SECT"]
+        if abs(dy) > 1e-12:
+            te_sweeps.append(math.degrees(math.atan2(dx, dy)))
+        else:
+            te_sweeps.append(0.0)
+
     # Overall LE sweep (root → tip)
     overall_sweep_le = math.degrees(
         math.atan2(tip["G1SECT"] - root["G1SECT"], semi_span)
     ) if semi_span else 0.0
 
-    # A wing is "cranked" when intermediate chords deviate from linear taper
+    # Detect crank via consecutive-panel grouping.
+    # A real crank produces two contiguous groups of >=2 panels with
+    # internally consistent but mutually different sweep angles.
+    # Body-wing junction effects produce isolated single-panel outliers
+    # near the root that don't form a consistent group.
     is_cranked = False
     kink_index: int | None = None
     kink_eta = 0.0
@@ -206,26 +245,30 @@ def compute_planform(sections: list[dict]) -> dict[str, Any]:
     sweep_le_1 = overall_sweep_le
     sweep_le_2 = overall_sweep_le
 
-    if len(sections) >= 3:
-        max_dev = 0.0
-        best_kink = -1
-        for i in range(1, len(sections) - 1):
-            eta_i = etas[i]
-            expected_chord = root_chord * (1.0 - eta_i * (1.0 - taper_ratio))
-            actual_chord = _chord(sections[i])
-            dev = abs(actual_chord - expected_chord)
-            if dev > max_dev:
-                max_dev = dev
-                best_kink = i
+    _GROUP_TOLERANCE = 1.5   # degrees – max intra-group sweep variation
+    _MIN_GROUP_SIZE = 2      # panels needed for a "significant" group
+    _SWEEP_DIFF_THRESH = 2.0 # degrees – min inter-group sweep difference
 
-        # Threshold: 1 % of root chord
-        if max_dev > 0.01 * root_chord:
-            is_cranked = True
-            kink_index = best_kink
+    if len(sections) >= 3:
+        for sweeps in (panel_sweeps, te_sweeps):
+            groups = _group_consecutive_panels(sweeps, _GROUP_TOLERANCE)
+            sig = [g for g in groups if len(g["panels"]) >= _MIN_GROUP_SIZE]
+            if len(sig) < 2:
+                continue
+            # Check adjacent significant groups for a real sweep break
+            sig.sort(key=lambda g: min(g["panels"]))
+            for j in range(len(sig) - 1):
+                if abs(sig[j + 1]["sweep"] - sig[j]["sweep"]) > _SWEEP_DIFF_THRESH:
+                    is_cranked = True
+                    kink_index = max(sig[j]["panels"]) + 1  # section index
+                    break
+            if is_cranked:
+                break
+
+        if is_cranked and kink_index is not None:
             kink_eta = etas[kink_index]
             kink_taper = _chord(sections[kink_index]) / root_chord
 
-            # Average LE sweep for each panel
             dy1 = sections[kink_index]["YSECT"] - root["YSECT"]
             dx1 = sections[kink_index]["G1SECT"] - root["G1SECT"]
             sweep_le_1 = math.degrees(math.atan2(dx1, dy1)) if dy1 else 0.0

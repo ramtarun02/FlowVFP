@@ -917,11 +917,27 @@ if auto_runner:
         float(vfpData["formData"].get("autoEndAoA",  0.0)) if autoMode == "aoa"
         else float(vfpData["formData"].get("autoEndMach", 0.0))
     )
-    base_aoa  = float(vfpData["formData"].get("aoa",  0.0))
-    base_mach = float(vfpData["formData"].get("mach", 0.0))
+    # Read actual AoA and Mach from the input flow (.dat) file
+    orig_flow_file_name = vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"]
+    orig_flow_file_path = os.path.join(wingSimDir, orig_flow_file_name)
+    try:
+        flow_result = readFLOW(orig_flow_file_path)
+        # Find the highest level and parse its first line for Mach/AoA
+        level_numbers = [int(m.group(1)) for key in flow_result.get('levels', {})
+                         for m in re.finditer(r'^level(\d+)$', key)]
+        highest_key = f"level{max(level_numbers)}" if level_numbers else "level1"
+        first_line_parts = flow_result['levels'][highest_key][0].split()
+        base_mach = float(first_line_parts[3])
+        base_aoa  = float(first_line_parts[4])
+        logger.info("AutoRunner: read initial AoA=%.4f, Mach=%.4f from flow file %s",
+                     base_aoa, base_mach, orig_flow_file_name)
+    except Exception as _e:
+        logger.warning("AutoRunner: could not read AoA/Mach from flow file (%s), "
+                        "falling back to form data: %s", orig_flow_file_name, _e)
+        base_aoa  = float(vfpData["formData"].get("aoa",  0.0))
+        base_mach = float(vfpData["formData"].get("mach", 0.0))
 
     # Extract Reynolds number from the original flow file name
-    orig_flow_file_name = vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"]
     re_match   = re.search(r"Re(\d+p\d+)", orig_flow_file_name)
     reynolds   = re_match.group(1) if re_match else "0p00"
 
