@@ -336,7 +336,42 @@ const RunSolver = () => {
   }, [wingFiles, tailFiles, bodyFiles, includeTail]);
 
   // ── Save Draft ─────────────────────────────────────────────────────────────
-  const handleSaveDraft = useCallback(() => {
+  const handleSaveDraft = useCallback(async () => {
+    // Read file contents so the draft includes actual file data
+    const readEntry = async (entry) => {
+      if (!entry?.file) return null;
+      try { return await readFileAsText(entry.file); } catch { return null; }
+    };
+
+    // Read wing config file data
+    const wingFileData = {};
+    for (const key of ["GeoFile", "MapFile", "DatFile"]) {
+      const entry = wingFiles[key];
+      if (entry?.name) {
+        const content = await readEntry(entry);
+        if (content != null) wingFileData[entry.name] = content;
+      }
+    }
+
+    // Read tail config file data
+    const tailFileData = {};
+    for (const key of ["GeoFile", "MapFile", "DatFile"]) {
+      const entry = tailFiles[key];
+      if (entry?.name) {
+        const content = await readEntry(entry);
+        if (content != null) tailFileData[entry.name] = content;
+      }
+    }
+
+    // Read body file data
+    const bodyFileData = {};
+    for (const entry of bodyFiles) {
+      if (entry?.name) {
+        const content = await readEntry(entry);
+        if (content != null) bodyFileData[entry.name] = content;
+      }
+    }
+
     const draft = {
       formData: {
         simName, mach, aoa, reynolds, continuationRun, wingDumpName, tailDumpName,
@@ -344,11 +379,10 @@ const RunSolver = () => {
         uploadId: "", continuationSplitKey: "", continuationSplitFile: "",
         continuationSelections: [],
       },
-      // Note: file objects can't be serialised; store names only in draft
       inputFiles: {
-        wingConfig: { fileNames: { GeoFile: wingFiles.GeoFile?.name || "", MapFile: wingFiles.MapFile?.name || "", DatFile: wingFiles.DatFile?.name || "" }, fileData: {} },
-        tailConfig: { fileNames: { GeoFile: tailFiles.GeoFile?.name || "", MapFile: tailFiles.MapFile?.name || "", DatFile: tailFiles.DatFile?.name || "" }, fileData: {} },
-        bodyFiles:  { fileNames: bodyFiles.map(e => e.name), fileData: {} },
+        wingConfig: { fileNames: { GeoFile: wingFiles.GeoFile?.name || "", MapFile: wingFiles.MapFile?.name || "", DatFile: wingFiles.DatFile?.name || "" }, fileData: wingFileData },
+        tailConfig: { fileNames: { GeoFile: tailFiles.GeoFile?.name || "", MapFile: tailFiles.MapFile?.name || "", DatFile: tailFiles.DatFile?.name || "" }, fileData: tailFileData },
+        bodyFiles:  { fileNames: bodyFiles.map(e => e.name), fileData: bodyFileData },
       },
     };
     const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });

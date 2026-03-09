@@ -20,7 +20,7 @@ export default function LandingPage() {
       gradient: moduleGradients[0],
       icon: <IconPlaneTilt size={72} stroke={1.5} className="text-[#1e5bb8]" />,
       title: "Geometry Module",
-      desc: "Parametric geometry definition and manipulation for aircraft configurations, supporting complex wing-body combinations and control surface deflections.",
+      desc: "Parametric geometry definition and manipulation for aircraft wing planform, supporting complex wing-body combinations and design iterations.",
       link: "/geometry",
     },
     {

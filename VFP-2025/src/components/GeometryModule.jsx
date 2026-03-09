@@ -45,6 +45,13 @@ function GeometryModule() {
   });
   const [fpconDownloadUrl, setFpconDownloadUrl] = useState(null);
   const [changeSectionsRaw, setChangeSectionsRaw] = useState('');
+
+  // --- Generate MAP State ---
+  const [geo2mapOpen, setGeo2mapOpen] = useState(false);
+  const [geo2mapLoading, setGeo2mapLoading] = useState(false);
+  const [geo2mapMach, setGeo2mapMach] = useState('0.0');
+  const [geo2mapIncidence, setGeo2mapIncidence] = useState('0.0');
+  const [geo2mapBodyRadius, setGeo2mapBodyRadius] = useState('');
   const [improveSettings, setImproveSettings] = useState({
     selectedParameter: 'Twist',
     startSection: 1,
@@ -64,6 +71,7 @@ function GeometryModule() {
   const [sidePanelWidth, setSidePanelWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = React.useRef(null);
+  const geo2mapRef = React.useRef(null);
 
   // --- FPCON Handlers ---
   const handleFpconChange = (field, value, idx) => {
@@ -241,6 +249,52 @@ function GeometryModule() {
     { primary: 'magenta', secondary: 'olive' }
   ];
 
+  // --- Generate MAP Handler ---
+  const handleGeo2Map = async (geoFile) => {
+    if (!geoFile) return;
+    setGeo2mapLoading(true);
+    setGeo2mapOpen(false);
+    try {
+      const geoData = geoFile.modifiedGeoData || geoFile.originalGeoData;
+      const filename = geoFile.fullName || `${geoFile.name}.GEO`;
+      const response = await fetchAPI('/api/geometry/geo2map', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          geoData,
+          bodyData: geoFile.bodyData || { xrad: [], rad: [] },
+          bodyRadius: geo2mapBodyRadius !== '' ? parseFloat(geo2mapBodyRadius) : null,
+          filename,
+          mach: parseFloat(geo2mapMach) || 0.0,
+          incidence: parseFloat(geo2mapIncidence) || 0.0
+        })
+      });
+      if (response.ok && response.blob) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const baseName = filename.replace(/\.[^/.]+$/, '');
+        a.href = url;
+        a.download = `${baseName}_map_files.zip`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } else {
+        let errorMsg = 'Unknown error';
+        try {
+          const result = response.json ? await response.json() : null;
+          errorMsg = result?.error || errorMsg;
+        } catch {}
+        alert('Generate MAP failed: ' + errorMsg);
+      }
+    } catch (err) {
+      alert('Generate MAP failed: ' + err.message);
+    } finally {
+      setGeo2mapLoading(false);
+    }
+  };
+
   // --- File Upload Handler ---
   const removeFileExtension = (filename) => filename.replace(/\.[^/.]+$/, "");
   const handleFileUpload = async (event) => {
@@ -267,6 +321,7 @@ function GeometryModule() {
               fullName: result.filename,
               originalGeoData: result.geoData,
               modifiedGeoData: null,
+              bodyData: result.bodyData || { xrad: [], rad: [] },
               originalPlotData: result.plotData,
               modifiedPlotData: null,
               color: colorPalette[(geoFiles.length + index) % colorPalette.length],
@@ -313,6 +368,7 @@ function GeometryModule() {
         },
         body: JSON.stringify({
           geoData: geoData,
+          bodyData: selectedGeoFile.bodyData || { xrad: [], rad: [] },
           filename: originalFilename
         }),
       });
@@ -574,6 +630,19 @@ function GeometryModule() {
       updateParameters(selectedSection);
     }
   }, [selectedGeoFile?.modifiedGeoData, selectedSection]);
+
+  // Close Generate MAP dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (geo2mapRef.current && !geo2mapRef.current.contains(e.target)) {
+        setGeo2mapOpen(false);
+      }
+    };
+    if (geo2mapOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [geo2mapOpen]);
 
 
   const computeDesired = async () => {
@@ -938,6 +1007,81 @@ function GeometryModule() {
           >
             FPCON
           </button>
+          <div className="relative" ref={geo2mapRef}>
+            <button
+              className={`px-4 py-2 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:shadow-md ${
+                geo2mapLoading
+                  ? 'bg-yellow-100 text-yellow-700 cursor-wait'
+                  : geoFiles.length === 0
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-green-100 hover:bg-green-200 text-green-700'
+              }`}
+              onClick={() => { if (geoFiles.length > 0 && !geo2mapLoading) setGeo2mapOpen(prev => !prev); }}
+              disabled={geoFiles.length === 0 || geo2mapLoading}
+            >
+              {geo2mapLoading ? 'Generating MAP...' : 'Generate MAP'}
+            </button>
+            {geo2mapOpen && geoFiles.length > 0 && (
+              <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-300 rounded-lg shadow-xl z-50">
+                <div className="p-3 border-b border-gray-200">
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Flow Conditions</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-0.5">Mach</label>
+                      <input
+                        type="number" step="0.01" value={geo2mapMach}
+                        onChange={e => setGeo2mapMach(e.target.value)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-0.5">Incidence (deg)</label>
+                      <input
+                        type="number" step="0.1" value={geo2mapIncidence}
+                        onChange={e => setGeo2mapIncidence(e.target.value)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-0.5">Body Radius</label>
+                      <input
+                        type="number" step="0.01" value={geo2mapBodyRadius}
+                        onChange={e => setGeo2mapBodyRadius(e.target.value)}
+                        placeholder="auto"
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="p-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase px-1 mb-1">Select Geometry</p>
+                  {geoFiles.map(gf => {
+                    const isModified = !!gf.modifiedGeoData;
+                    return (
+                      <button
+                        key={gf.id}
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-green-50 transition-colors flex items-center justify-between group"
+                        onClick={() => handleGeo2Map(gf)}
+                      >
+                        <span className="truncate font-medium text-gray-700 group-hover:text-green-700">{gf.name}</span>
+                        {isModified && (
+                          <span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full flex-shrink-0">modified</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-gray-200 p-2">
+                  <button
+                    className="w-full text-xs text-gray-400 hover:text-red-500 py-1"
+                    onClick={() => setGeo2mapOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           <div className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 border border-gray-300 rounded-lg font-medium transition-all duration-200 hover:shadow-md cursor-pointer">
             <input
               type="file"

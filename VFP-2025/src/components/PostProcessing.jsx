@@ -7,6 +7,7 @@ import regression from 'regression';
 import { DEG2RAD } from "three/src/math/MathUtils.js";
 import { streamParseVfpForPost, getResultFileAsBlob } from '../utils/vfpPostParser';
 import { vfpPostStorage } from '../utils/vfpPostStorage';
+import { downloadPlotDataAsCSV } from '../utils/downloadPlotCSV';
 
 
 function PostProcessing() {
@@ -2228,7 +2229,7 @@ function PostProcessing() {
           {isTextMode ? (
             renderTextFileViewer()
           ) : showMesh && meshData ? (
-            <div className="flex-1 bg-white">
+            <div className="flex-1 bg-white relative">
               <Plot
                 data={meshData.data}
                 layout={meshData.layout}
@@ -2236,10 +2237,13 @@ function PostProcessing() {
                 style={{ width: '100%', height: '100%' }}
                 useResizeHandler={true}
               />
+              <button onClick={() => downloadPlotDataAsCSV(meshData, 'mesh-data')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+              </button>
             </div>
           ) : showSpanwiseDistribution && spanwiseData ? (
             <div className="flex-1 flex flex-col">
-              <div className="flex-1 bg-white">
+              <div className="flex-1 bg-white relative">
                 <Plot
                   data={spanwiseData.data}
                   layout={spanwiseData.layout}
@@ -2247,16 +2251,24 @@ function PostProcessing() {
                   style={{ width: '100%', height: '100%' }}
                   useResizeHandler={true}
                 />
+                <button onClick={() => downloadPlotDataAsCSV(spanwiseData, 'spanwise-data')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                </button>
               </div>
-              <div className="flex-1 bg-white border-t border-blue-200">
+              <div className="flex-1 bg-white border-t border-blue-200 relative">
                 {plotData2 ? (
-                  <Plot
-                    data={plotData2.data}
-                    layout={plotData2.layout}
-                    config={plotData2.config}
-                    style={{ width: '100%', height: '100%' }}
-                    useResizeHandler={true}
-                  />
+                  <>
+                    <Plot
+                      data={plotData2.data}
+                      layout={plotData2.layout}
+                      config={plotData2.config}
+                      style={{ width: '100%', height: '100%' }}
+                      useResizeHandler={true}
+                    />
+                    <button onClick={() => downloadPlotDataAsCSV(plotData2, 'section-data')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                    </button>
+                  </>
                 ) : (
                   <div className="h-full bg-blue-50 flex items-center justify-center">
                     <p className="text-gray-500">No plot data available</p>
@@ -2266,15 +2278,20 @@ function PostProcessing() {
             </div>
           ) : (
             <div className="flex-1 flex flex-col">
-              <div className="flex-1 bg-white">
+              <div className="flex-1 bg-white relative">
                 {plotData1 ? (
-                  <Plot
-                    data={plotData1.data}
-                    layout={plotData1.layout}
-                    config={plotData1.config}
-                    style={{ width: '100%', height: '100%' }}
-                    useResizeHandler={true}
-                  />
+                  <>
+                    <Plot
+                      data={plotData1.data}
+                      layout={plotData1.layout}
+                      config={plotData1.config}
+                      style={{ width: '100%', height: '100%' }}
+                      useResizeHandler={true}
+                    />
+                    <button onClick={() => downloadPlotDataAsCSV(plotData1, 'plot-upper')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                    </button>
+                  </>
                 ) : (
                   <div className="h-full bg-blue-50 flex items-center justify-center">
                     <div className="text-center">
@@ -2288,15 +2305,20 @@ function PostProcessing() {
                   </div>
                 )}
               </div>
-              <div className="flex-1 bg-white border-t border-blue-200">
+              <div className="flex-1 bg-white border-t border-blue-200 relative">
                 {plotData2 ? (
-                  <Plot
-                    data={plotData2.data}
-                    layout={plotData2.layout}
-                    config={plotData2.config}
-                    style={{ width: '100%', height: '100%' }}
-                    useResizeHandler={true}
-                  />
+                  <>
+                    <Plot
+                      data={plotData2.data}
+                      layout={plotData2.layout}
+                      config={plotData2.config}
+                      style={{ width: '100%', height: '100%' }}
+                      useResizeHandler={true}
+                    />
+                    <button onClick={() => downloadPlotDataAsCSV(plotData2, 'plot-lower')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                    </button>
+                  </>
                 ) : (
                   <div className="h-full bg-blue-50 flex items-center justify-center">
                     <p className="text-gray-500">No plot data available</p>

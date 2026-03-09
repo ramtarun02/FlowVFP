@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useSimulationData } from "../components/SimulationDataContext";
 import { fetchAPI } from '../utils/fetch';
 import { getResultFileAsBlob } from '../utils/vfpPostParser';
+import { downloadPlotDataAsCSV } from '../utils/downloadPlotCSV';
 
 function ContourPlot() {
     const navigate = useNavigate();
@@ -444,7 +445,7 @@ function ContourPlot() {
                 {/* Main Plot Area */}
                 <div className="flex-1 flex flex-col p-4 bg-white overflow-hidden">
                     {plotData ? (
-                        <div className="flex-1 border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                        <div className="flex-1 border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm relative">
                             <Plot
                                 data={plotData.data}
                                 layout={plotData.layout}
@@ -452,6 +453,9 @@ function ContourPlot() {
                                 style={{ width: "100%", height: "100%" }}
                                 useResizeHandler={true}
                             />
+                            <button onClick={() => downloadPlotDataAsCSV(plotData, 'contour-data')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                            </button>
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col justify-center items-center text-center">

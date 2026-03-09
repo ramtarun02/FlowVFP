@@ -4,6 +4,7 @@ import Plot from 'react-plotly.js';
 import { fetchAPI } from '../utils/fetch';
 import { useSimulationData } from "../components/SimulationDataContext";
 import { getResultFileAsBlob } from '../utils/vfpPostParser';
+import { downloadPlotDataAsCSV } from '../utils/downloadPlotCSV';
 
 function BoundaryLayer() {
     // --- Routing and Context ---
@@ -1093,7 +1094,7 @@ function BoundaryLayer() {
                             <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3 lg:gap-4 p-2 lg:p-4 min-h-full">
                                 {Object.entries(plotData).map(([key, data]) => (
                                     data && (
-                                        <div key={key} className="w-full h-96 lg:h-[500px] xl:h-96 2xl:h-[400px] border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow duration-200 flex-shrink-0">
+                                        <div key={key} className="relative w-full h-96 lg:h-[500px] xl:h-96 2xl:h-[400px] border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow duration-200 flex-shrink-0">
                                             <Plot
                                                 data={data.data}
                                                 layout={data.layout}
@@ -1101,6 +1102,9 @@ function BoundaryLayer() {
                                                 style={{ width: '100%', height: '100%' }}
                                                 useResizeHandler={true}
                                             />
+                                            <button onClick={() => downloadPlotDataAsCSV(data, `bl-${key}`)} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                                            </button>
                                         </div>
                                     )
                                 ))}
@@ -1116,15 +1120,20 @@ function BoundaryLayer() {
                             </div>
                             <div className="flex-1 px-2 lg:px-4 pb-4">
                                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 lg:gap-6 h-full">
-                                    <div className="h-96 lg:h-[500px] xl:h-full border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow duration-200 flex items-center justify-center flex-shrink-0">
+                                    <div className="h-96 lg:h-[500px] xl:h-full border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow duration-200 flex items-center justify-center flex-shrink-0 relative">
                                         {blPlots.streamwise ? (
-                                            <Plot
-                                                data={blPlots.streamwise.data}
-                                                layout={blPlots.streamwise.layout}
-                                                config={blPlots.streamwise.config}
-                                                style={{ width: '100%', height: '100%' }}
-                                                useResizeHandler={true}
-                                            />
+                                            <>
+                                                <Plot
+                                                    data={blPlots.streamwise.data}
+                                                    layout={blPlots.streamwise.layout}
+                                                    config={blPlots.streamwise.config}
+                                                    style={{ width: '100%', height: '100%' }}
+                                                    useResizeHandler={true}
+                                                />
+                                                <button onClick={() => downloadPlotDataAsCSV(blPlots.streamwise, 'bl-streamwise-velocity')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                                                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                                                </button>
+                                            </>
                                         ) : (
                                             <div className="text-center p-6 lg:p-8">
                                                 <div className="text-blue-400 mb-4">
@@ -1136,15 +1145,20 @@ function BoundaryLayer() {
                                             </div>
                                         )}
                                     </div>
-                                    <div className="h-96 lg:h-[500px] xl:h-full border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow duration-200 flex items-center justify-center flex-shrink-0">
+                                    <div className="h-96 lg:h-[500px] xl:h-full border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow duration-200 flex items-center justify-center flex-shrink-0 relative">
                                         {blPlots.crossflow ? (
-                                            <Plot
-                                                data={blPlots.crossflow.data}
-                                                layout={blPlots.crossflow.layout}
-                                                config={blPlots.crossflow.config}
-                                                style={{ width: '100%', height: '100%' }}
-                                                useResizeHandler={true}
-                                            />
+                                            <>
+                                                <Plot
+                                                    data={blPlots.crossflow.data}
+                                                    layout={blPlots.crossflow.layout}
+                                                    config={blPlots.crossflow.config}
+                                                    style={{ width: '100%', height: '100%' }}
+                                                    useResizeHandler={true}
+                                                />
+                                                <button onClick={() => downloadPlotDataAsCSV(blPlots.crossflow, 'bl-crossflow-velocity')} title="Download CSV" className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-sm transition-colors duration-150">
+                                                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+                                                </button>
+                                            </>
                                         ) : (
                                             <div className="text-center p-6 lg:p-8">
                                                 <div className="text-blue-400 mb-4">
