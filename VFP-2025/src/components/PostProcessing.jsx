@@ -1289,8 +1289,9 @@ function PostProcessing() {
   /** Close VFP file and reset. */
   const handleCloseVfp = useCallback(() => {
     resetVfpState();
+    setSimulationData(null);
     setImportMode('none');
-  }, [resetVfpState]);
+  }, [resetVfpState, setSimulationData]);
 
   /** Universal close — handles both modes. */
   const handleClose = useCallback(() => {

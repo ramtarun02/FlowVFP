@@ -73,6 +73,40 @@ function GeometryModule() {
   const resizeRef = React.useRef(null);
   const geo2mapRef = React.useRef(null);
 
+  // --- Reset Handler ---
+  const handleReset = () => {
+    setGeoFiles([]);
+    setSelectedGeoFile(null);
+    setVisible2DFiles([]);
+    setSections([]);
+    setSelectedSection(-1);
+    setParameters({});
+    setModifiedParameters({});
+    setSelected2DPlot("");
+    setPlanformView(false);
+    setWingSpecs({ aspectRatio: 0, wingSpan: 0, numSections: 0, taperRatio: 0, wingArea: 0 });
+    setFpconOpen(false);
+    setFpconDownloadUrl(null);
+    setGeo2mapOpen(false);
+    setGeo2mapLoading(false);
+    setGeo2mapMach('0.0');
+    setGeo2mapIncidence('0.0');
+    setGeo2mapBodyRadius('');
+    setImproveSettings({
+      selectedParameter: 'Twist',
+      startSection: 1,
+      endSection: 1,
+      method: 'linear',
+      aValue: 0,
+      n: 2.0,
+      kinkEta: 0.5,
+      kinkValue: '',
+      slopeStart: 0.0,
+      slopeEnd: 0.0,
+      decay: 1.0
+    });
+  };
+
   // --- FPCON Handlers ---
   const handleFpconChange = (field, value, idx) => {
     if (['etas', 'hsect', 'xtwsec', 'twsin'].includes(field)) {
@@ -1106,7 +1140,7 @@ function GeometryModule() {
           </button>
           <button
             className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
-            onClick={() => window.location.reload(false)}
+            onClick={handleReset}
           >
             Reset
           </button>
