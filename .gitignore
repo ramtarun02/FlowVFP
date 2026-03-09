@@ -53,3 +53,6 @@ htmlcov/
 .DS_Store
 Desktop.ini
 ehthumbs.db
+
+# ==== Case Files ====
+/examples
