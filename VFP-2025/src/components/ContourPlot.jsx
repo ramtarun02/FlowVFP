@@ -96,6 +96,7 @@ function ContourPlot() {
     const [selectedLevel, setSelectedLevel] = useState("");
     const [contourType, setContourType] = useState("CP");
     const [contourLevels, setContourLevels] = useState(50);
+    const [showContourLines, setShowContourLines] = useState(true);
     const [plotData, setPlotData] = useState(null);
     const [minValue, setMinValue] = useState(0);
     const [maxValue, setMaxValue] = useState(1);
@@ -146,6 +147,50 @@ function ContourPlot() {
             setMaxValue(Math.max(...allVals));
         }
     }, [cpData, selectedLevel, contourType]);
+
+    function computeContourLines(grid, numLevels, minVal, maxVal) {
+        const allX = [], allY = [], allZ = [];
+        const lerp = (i1, j1, i2, j2, t) => ({
+            x: grid.x[i1][j1] + t * (grid.x[i2][j2] - grid.x[i1][j1]),
+            y: grid.y[i1][j1] + t * (grid.y[i2][j2] - grid.y[i1][j1]),
+            z: grid.z[i1][j1] + t * (grid.z[i2][j2] - grid.z[i1][j1]),
+        });
+        for (let n = 1; n < numLevels; n++) {
+            const level = minVal + (maxVal - minVal) * n / numLevels;
+            for (let i = 0; i < grid.x.length - 1; i++) {
+                const rowLen = Math.min(grid.x[i].length, grid.x[i + 1].length);
+                for (let j = 0; j < rowLen - 1; j++) {
+                    const v00 = grid.value[i][j], v01 = grid.value[i][j + 1];
+                    const v10 = grid.value[i + 1][j], v11 = grid.value[i + 1][j + 1];
+                    if (v00 == null || v01 == null || v10 == null || v11 == null) continue;
+                    const edges = [];
+                    if ((v00 - level) * (v01 - level) < 0) {
+                        edges.push(lerp(i, j, i, j + 1, (level - v00) / (v01 - v00)));
+                    }
+                    if ((v10 - level) * (v11 - level) < 0) {
+                        edges.push(lerp(i + 1, j, i + 1, j + 1, (level - v10) / (v11 - v10)));
+                    }
+                    if ((v00 - level) * (v10 - level) < 0) {
+                        edges.push(lerp(i, j, i + 1, j, (level - v00) / (v10 - v00)));
+                    }
+                    if ((v01 - level) * (v11 - level) < 0) {
+                        edges.push(lerp(i, j + 1, i + 1, j + 1, (level - v01) / (v11 - v01)));
+                    }
+                    if (edges.length >= 2) {
+                        allX.push(edges[0].x, edges[1].x, null);
+                        allY.push(edges[0].y, edges[1].y, null);
+                        allZ.push(edges[0].z, edges[1].z, null);
+                    }
+                    if (edges.length === 4) {
+                        allX.push(edges[2].x, edges[3].x, null);
+                        allY.push(edges[2].y, edges[3].y, null);
+                        allZ.push(edges[2].z, edges[3].z, null);
+                    }
+                }
+            }
+        }
+        return { x: allX, y: allY, z: allZ };
+    }
 
     function buildSurfaceGrid(cpData, selectedLevel, contourType) {
         if (!cpData || !selectedLevel || !cpData.levels[selectedLevel]) return null;
@@ -210,24 +255,42 @@ function ContourPlot() {
             }
         }
 
+        const traces = [
+            {
+                type: "surface",
+                x: grid.x,
+                y: grid.y,
+                z: grid.z,
+                surfacecolor: grid.value,
+                colorscale: "Jet",
+                colorbar: {
+                    title: contourType,
+                    titleside: "right"
+                },
+                cmin: minValue,
+                cmax: maxValue,
+                showscale: true
+            }
+        ];
+
+        if (showContourLines) {
+            const contourLines = computeContourLines(grid, contourLevels, minValue, maxValue);
+            if (contourLines.x.length > 0) {
+                traces.push({
+                    type: "scatter3d",
+                    mode: "lines",
+                    x: contourLines.x,
+                    y: contourLines.y,
+                    z: contourLines.z,
+                    line: { color: "black", width: 2 },
+                    showlegend: false,
+                    hoverinfo: "skip"
+                });
+            }
+        }
+
         setPlotData({
-            data: [
-                {
-                    type: "surface",
-                    x: grid.x,
-                    y: grid.y,
-                    z: grid.z,
-                    surfacecolor: grid.value,
-                    colorscale: "Jet",
-                    colorbar: {
-                        title: contourType,
-                        titleside: "right"
-                    },
-                    cmin: minValue,
-                    cmax: maxValue,
-                    showscale: true
-                }
-            ],
+            data: traces,
             layout: {
                 title: `${contourType} Distribution - 3D Wing Surface`,
                 scene: {
@@ -247,7 +310,7 @@ function ContourPlot() {
                 responsive: true
             }
         });
-    }, [cpData, selectedLevel, contourType, minValue, maxValue]);
+    }, [cpData, selectedLevel, contourType, contourLevels, showContourLines, minValue, maxValue]);
 
     // UI
     return (
@@ -396,24 +459,38 @@ function ContourPlot() {
                                 <option value="M">Mach Number</option>
                             </select>
                         </div>
-                        {/* Contour Levels
+                        {/* Contour Lines Toggle */}
                         <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Contour Levels: {contourLevels}
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={showContourLines}
+                                    onChange={e => setShowContourLines(e.target.checked)}
+                                    className="w-4 h-4 text-blue-600 border-blue-300 rounded focus:ring-blue-500"
+                                />
+                                <span className="text-sm font-medium text-gray-700">Show Contour Lines</span>
                             </label>
-                            <input
-                                type="range"
-                                min="10"
-                                max="100"
-                                value={contourLevels}
-                                onChange={e => setContourLevels(parseInt(e.target.value) || 50)}
-                                className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer slider"
-                            />
-                            <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                <span>10</span>
-                                <span>100</span>
+                        </div>
+                        {/* Contour Levels */}
+                        {showContourLines && (
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Contour Lines: {contourLevels}
+                                </label>
+                                <input
+                                    type="range"
+                                    min="10"
+                                    max="100"
+                                    value={contourLevels}
+                                    onChange={e => setContourLevels(parseInt(e.target.value) || 50)}
+                                    className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer slider"
+                                />
+                                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>10</span>
+                                    <span>100</span>
+                                </div>
                             </div>
-                        </div> */}
+                        )}
                     </div>
                     {/* Value Range Display */}
                     {selectedLevel && (

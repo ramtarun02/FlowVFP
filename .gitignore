@@ -56,3 +56,5 @@ ehthumbs.db
 
 # ==== Case Files ====
 /examples
+*.vfp
+*.json
