@@ -155,7 +155,7 @@ def start_simulation(msg):
             logger.info("Engine process exited: code=%s sim=%s", return_code, sim_name)
             _current_process = None
 
-            # Look for the results file — engine saves as {simName}_results.vfp
+            # Look for the results file — engine saves as {simName}-a{aoa}.vfp
             result_file = _find_vfp_for_sim(simulations_folder, sim_name)
 
             if result_file and result_file.exists():
@@ -290,13 +290,10 @@ def _find_any_vfp(folder: Path) -> Optional[Path]:
 
 
 def _find_vfp_for_sim(folder: Path, sim_name: str) -> Optional[Path]:
-    # Prefer the canonical {simName}.vfp or {simName}_results.vfp before any other match
-    for candidate in (
-        folder / f"{sim_name}.vfp",
-        folder / f"{sim_name}_results.vfp",
-    ):
-        if candidate.exists():
-            return candidate
+    # Prefer the canonical {simName}.vfp before falling back to stem-prefix match
+    candidate = folder / f"{sim_name}.vfp"
+    if candidate.exists():
+        return candidate
     # Fall back to any .vfp whose stem starts with the sim name
     for f in sorted(folder.iterdir()):
         if f.name.lower().startswith(sim_name.lower()) and f.suffix.lower() == ".vfp":

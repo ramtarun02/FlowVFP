@@ -95,7 +95,7 @@ def readGEO(filename):
         RAD.append(float(line[1]))
         index += 1
 
-    return Sections
+    return {"sections": Sections, "xrad": XRAD, "rad": RAD}
 
 def interpolate_airfoil(airfoil_points, num_points=10000):
     """

@@ -48,7 +48,7 @@ The engine selects exactly one of the following based on `formData` flags:
   - Reads dump files from `results[configKey][FlowKey][dumpFiles]` and writes required `fort11/15/21/50/51/52/55` into the sim directory (`vfp_dumpfile_write`).
   - Runs `cmdvfp.bat` with continuation and excrescence flags plus the dump base name.
 - Dump flow key is taken from `wingDumpName`, `tailDumpName`, or `dumpName` in `formData`.
-- Results are appended and saved to `{simName}-a{aoa}.vfp` (or `{simName}_results.vfp` if AoA missing).
+- Results are appended and saved to `{simName}-a{aoa}.vfp`.
 
 ### 3) Standard Mode (default)
 - Runs wing first. Batch arguments: `cmdvfp.bat <map> <geo> <dat> <contFlag> <excrFlag> ""` with `contFlag`/`excrFlag` set from `formData`.
@@ -58,7 +58,7 @@ The engine selects exactly one of the following based on `formData` flags:
   - Computes tail inflow: `ALPHAT = ALPHAW - |epsilon|`, `MACHT = avg_local_mach` (both rounded to 4 dp).
   - Modifies the tail flow file in-place (`modify_tail_flow_file_preserve_format`) with new Mach/AoA while preserving formatting and level blocks; updates `inputFiles.tailConfig.fileData` with the modified content.
   - Runs tail in standard mode.
-- Results saved to `{simName}-a{aoa}.vfp` (or `{simName}_results.vfp`).
+- Results saved to `{simName}-a{aoa}.vfp`.
 
 ## Result Collection and Data Shape
 - `add_vfp_results_to_data` scans the sim directory after each run and populates `results[configKey][flowKey]` where `flowKey` is the Dat filename without extension.
@@ -68,7 +68,7 @@ The engine selects exactly one of the following based on `formData` flags:
   - Dump files (`.fort11/15/21/50/51/52/55`) are placed under `dumpFiles` inside the flow entry.
   - Wavedrag (`wavedrg73/74/75/76.DAT`) is added when present.
 - AutoRunner-only: `results.Polars` contains arrays extracted from paired `.forces` and `wavedrg73` files, sorted by `ALPHA`.
-- Final save: `save_vfp_results` writes the whole JSON (with numpy types coerced) to `data/Simulations/{simName}-a{aoaStr}.vfp` where `aoaStr` formats `1.25 -> 1p25`, `-0.5 -> m0p50`. When AoA is missing, outputs to `{simName}_results.vfp`.
+- Final save: `save_vfp_results` writes the whole JSON (with numpy types coerced) to `data/Simulations/{simName}-a{aoaStr}.vfp` where `aoaStr` formats `1.25 -> 1p25`, `-0.5 -> m0p50`. When AoA is missing, defaults to `0p00`.
 
 ## Key Helpers
 - `write_vfp_input_files`: materializes per-config Geo/Map/Dat from `fileData`.

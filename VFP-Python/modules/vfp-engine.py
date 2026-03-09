@@ -257,7 +257,6 @@ def run_vfp(sim_dir, vfp_data, config_key):
     logger.info("VFP run completed for %s with exit code %s", config_key, process.returncode)
     add_vfp_results_to_data(vfp_data, sim_dir, config_key)
     logger.info("Simulation results added to VFP Data for %s", config_key)
-    save_vfp_results(vfp_data, simName=simName, aoa=None, project_root=project_root)
     return vfp_data
 
 def vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileKey):
@@ -415,7 +414,6 @@ def run_vfp_continuation(sim_dir, vfp_data, config_key, dumpFileName):
     )
     add_vfp_results_to_data(vfp_data, sim_dir, config_key)
     logger.info("Continuation results added to VFP Data for %s", config_key)
-    save_vfp_results(vfp_data, simName=simName, aoa=None, project_root=project_root)
     return vfp_data
 
 def extract_alpha_mach_from_flow(flow_file, level_idx=1):
@@ -478,11 +476,9 @@ def _json_safe_default(obj):
 
 
 def save_vfp_results(vfp_data, simName, aoa, project_root):
-    if aoa is not None:
-        aoa_str = f"{float(aoa):.2f}".replace('.', 'p').replace('-', 'm')
-        result_filename = f"{simName}-a{aoa_str}.vfp"
-    else:
-        result_filename = f"{simName}_results.vfp"
+    aoa_val = float(aoa) if aoa is not None else 0.0
+    aoa_str = f"{aoa_val:.2f}".replace('.', 'p').replace('-', 'm')
+    result_filename = f"{simName}-a{aoa_str}.vfp"
     outputVfpPath = os.path.join(project_root, "data", "Simulations", result_filename)
     with open(outputVfpPath, "w", encoding="utf-8") as f:
         json.dump(vfp_data, f, indent=4, default=_json_safe_default)
@@ -1325,90 +1321,93 @@ if auto_runner:
 
 elif continuation:
     logger.info("Continuation mode enabled")
-    _upload_id   = vfpData["formData"].get("uploadId")
-    _cont_dump   = vfpData["formData"].get("continuationDumpData")  # Case 4: inline payload
-    if "wingConfig" in vfpData.get("inputFiles", {}):
-        if _cont_dump and _cont_dump.get("configKey") == "wingConfig":
-            # Case 4: dump files delivered inline from browser IndexedDB selection
-            dumpFileName = _cont_dump.get("flowKey")
-        elif _upload_id:
-            # Case 3: large file uploaded to server – dump files are in split-json
-            dumpFileName = vfpData["formData"].get("continuationSplitKey")
-        else:
-            # Case 2: small file parsed by client – full results embedded in vfpData
-            dumpFileName = vfpData["formData"].get("wingDumpName", vfpData["formData"].get("dumpName"))
-        logger.info("Simulating wing continuation with dump %s", dumpFileName)
-        vfpData = run_vfp_continuation(wingSimDir, vfpData, "wingConfig", dumpFileName)
-    if (
-        "tailConfig" in vfpData.get("inputFiles", {}) and
-        vfpData["inputFiles"]["tailConfig"]["fileNames"].get("DatFile")
-    ):
-        if _cont_dump and _cont_dump.get("configKey") == "tailConfig":
-            # Case 4: dump files delivered inline from browser IndexedDB selection
-            dumpFileName = _cont_dump.get("flowKey")
-        elif _upload_id:
-            # Case 3: large file uploaded to server – dump files are in split-json
-            dumpFileName = vfpData["formData"].get("continuationSplitKey")
-        else:
-            # Case 2: small file parsed by client – full results embedded in vfpData
-            dumpFileName = vfpData["formData"].get("tailDumpName", vfpData["formData"].get("dumpName"))
-        vfpData = run_vfp_continuation(tailSimDir, vfpData, "tailConfig", dumpFileName)
-    save_vfp_results(vfpData, simName, aoa, project_root)
+    try:
+        _upload_id   = vfpData["formData"].get("uploadId")
+        _cont_dump   = vfpData["formData"].get("continuationDumpData")  # Case 4: inline payload
+        if "wingConfig" in vfpData.get("inputFiles", {}):
+            if _cont_dump and _cont_dump.get("configKey") == "wingConfig":
+                # Case 4: dump files delivered inline from browser IndexedDB selection
+                dumpFileName = _cont_dump.get("flowKey")
+            elif _upload_id:
+                # Case 3: large file uploaded to server – dump files are in split-json
+                dumpFileName = vfpData["formData"].get("continuationSplitKey")
+            else:
+                # Case 2: small file parsed by client – full results embedded in vfpData
+                dumpFileName = vfpData["formData"].get("wingDumpName", vfpData["formData"].get("dumpName"))
+            logger.info("Simulating wing continuation with dump %s", dumpFileName)
+            vfpData = run_vfp_continuation(wingSimDir, vfpData, "wingConfig", dumpFileName)
+        if (
+            "tailConfig" in vfpData.get("inputFiles", {}) and
+            vfpData["inputFiles"]["tailConfig"]["fileNames"].get("DatFile")
+        ):
+            if _cont_dump and _cont_dump.get("configKey") == "tailConfig":
+                # Case 4: dump files delivered inline from browser IndexedDB selection
+                dumpFileName = _cont_dump.get("flowKey")
+            elif _upload_id:
+                # Case 3: large file uploaded to server – dump files are in split-json
+                dumpFileName = vfpData["formData"].get("continuationSplitKey")
+            else:
+                # Case 2: small file parsed by client – full results embedded in vfpData
+                dumpFileName = vfpData["formData"].get("tailDumpName", vfpData["formData"].get("dumpName"))
+            vfpData = run_vfp_continuation(tailSimDir, vfpData, "tailConfig", dumpFileName)
+    finally:
+        save_vfp_results(vfpData, simName, aoa, project_root)
 
 else:
     logger.info("Standard mode enabled")
     if "wingConfig" not in vfpData.get("inputFiles", {}):
         raise RuntimeError("No wingConfig found in VFP data.")
 
-    logger.info("Simulating wing (standard mode)")
-    vfpData = run_vfp(wingSimDir, vfpData, "wingConfig")
+    try:
+        logger.info("Simulating wing (standard mode)")
+        vfpData = run_vfp(wingSimDir, vfpData, "wingConfig")
 
-    if (
-        "tailConfig" in vfpData.get("inputFiles", {}) and
-        vfpData["inputFiles"]["tailConfig"]["fileNames"].get("DatFile")
-    ):
-        logger.info("Computing downwash and modifying tail flow")
+        if (
+            "tailConfig" in vfpData.get("inputFiles", {}) and
+            vfpData["inputFiles"]["tailConfig"]["fileNames"].get("DatFile")
+        ):
+            logger.info("Computing downwash and modifying tail flow")
 
-        wing_flow = os.path.join(wingSimDir, vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"])
-        tail_flow = os.path.join(tailSimDir, vfpData["inputFiles"]["tailConfig"]["fileNames"]["DatFile"])
-        tail_geo  = os.path.join(tailSimDir, vfpData["inputFiles"]["tailConfig"]["fileNames"]["GeoFile"])
-        tail_map  = os.path.join(tailSimDir, vfpData["inputFiles"]["tailConfig"]["fileNames"]["MapFile"])
+            wing_flow = os.path.join(wingSimDir, vfpData["inputFiles"]["wingConfig"]["fileNames"]["DatFile"])
+            tail_flow = os.path.join(tailSimDir, vfpData["inputFiles"]["tailConfig"]["fileNames"]["DatFile"])
+            tail_geo  = os.path.join(tailSimDir, vfpData["inputFiles"]["tailConfig"]["fileNames"]["GeoFile"])
+            tail_map  = os.path.join(tailSimDir, vfpData["inputFiles"]["tailConfig"]["fileNames"]["MapFile"])
 
-        ALPHAW, MACHW = extract_alpha_mach_from_flow(wing_flow)
-        cp_files = [f for f in os.listdir(wingSimDir) if f.lower().endswith('.cp')]
-        if not cp_files:
-            raise RuntimeError("No .cp file found after wing simulation.")
-        cp_file = os.path.join(wingSimDir, cp_files[0])
+            ALPHAW, MACHW = extract_alpha_mach_from_flow(wing_flow)
+            cp_files = [f for f in os.listdir(wingSimDir) if f.lower().endswith('.cp')]
+            if not cp_files:
+                raise RuntimeError("No .cp file found after wing simulation.")
+            cp_file = os.path.join(wingSimDir, cp_files[0])
 
-        downwash_results = compute_downwash_LLT(cp_file, tail_geo, tail_spec, save_plots=False)
-        ALPHAE = downwash_results.get('effective_epsilon_deg')
-        MACHT = downwash_results.get('avg_local_mach')
-        ALPHAT = round(ALPHAW - abs(ALPHAE), 4)
-        MACHT = round(MACHT, 4)
-        logger.info(
-            "Downwash results ALPHAW=%s ALPHAE=%s ALPHAT=%s MACHT=%s",
-            ALPHAW,
-            ALPHAE,
-            ALPHAT,
-            MACHT,
-        )
+            downwash_results = compute_downwash_LLT(cp_file, tail_geo, tail_spec, save_plots=False)
+            ALPHAE = downwash_results.get('effective_epsilon_deg')
+            MACHT = downwash_results.get('avg_local_mach')
+            ALPHAT = round(ALPHAW - abs(ALPHAE), 4)
+            MACHT = round(MACHT, 4)
+            logger.info(
+                "Downwash results ALPHAW=%s ALPHAE=%s ALPHAT=%s MACHT=%s",
+                ALPHAW,
+                ALPHAE,
+                ALPHAT,
+                MACHT,
+            )
 
-        if "results" not in vfpData:
-            vfpData["results"] = {}
-        if "tailConfig" not in vfpData["results"]:
-            vfpData["results"]["tailConfig"] = {}
-        vfpData["results"]["tailConfig"]["flowLLT"] = downwash_results
+            if "results" not in vfpData:
+                vfpData["results"] = {}
+            if "tailConfig" not in vfpData["results"]:
+                vfpData["results"]["tailConfig"] = {}
+            vfpData["results"]["tailConfig"]["flowLLT"] = downwash_results
 
-        modify_tail_flow_file_preserve_format(tail_flow, ALPHAT, MACHT)
+            modify_tail_flow_file_preserve_format(tail_flow, ALPHAT, MACHT)
 
-        with open(tail_flow, "r", encoding="utf-8") as f:
-            tail_flow_data = f.read()
-        vfpData["inputFiles"]["tailConfig"]["fileData"][os.path.basename(tail_flow)] = tail_flow_data
+            with open(tail_flow, "r", encoding="utf-8") as f:
+                tail_flow_data = f.read()
+            vfpData["inputFiles"]["tailConfig"]["fileData"][os.path.basename(tail_flow)] = tail_flow_data
 
-        logger.info("Simulating tail (standard mode)")
-        vfpData = run_vfp(tailSimDir, vfpData, "tailConfig")
-
-    save_vfp_results(vfpData, simName, aoa, project_root)
+            logger.info("Simulating tail (standard mode)")
+            vfpData = run_vfp(tailSimDir, vfpData, "tailConfig")
+    finally:
+        save_vfp_results(vfpData, simName, aoa, project_root)
 
 # --- CLEANUP (commented out for debugging) ---
 # cleanup_sim_dir(simBaseDir)

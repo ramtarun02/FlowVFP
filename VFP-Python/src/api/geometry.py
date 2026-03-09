@@ -7,6 +7,7 @@ and FPCON (geometry plan-form conversion) execution.
 from __future__ import annotations
 
 import copy
+import io
 import logging
 import math
 import os
@@ -67,9 +68,11 @@ def import_geo():
         file_path = upload_folder / filename
         try:
             file.save(str(file_path))
-            geo_data = rG.readGEO(str(file_path))
-            plot_data = rG.airfoils(copy.deepcopy(geo_data))
-            results.append({"filename": filename, "geoData": geo_data, "plotData": plot_data})
+            parsed = rG.readGEO(str(file_path))
+            sections = parsed["sections"]
+            body_data = {"xrad": parsed["xrad"], "rad": parsed["rad"]}
+            plot_data = rG.airfoils(copy.deepcopy(sections))
+            results.append({"filename": filename, "geoData": sections, "bodyData": body_data, "plotData": plot_data})
         except Exception as exc:
             logger.exception("Error processing GEO file '%s'", filename)
             results.append({"filename": filename, "error": "Failed to process file."})
@@ -89,6 +92,7 @@ def export_geo():
         return jsonify(error="JSON body required"), 400
 
     geo_data = data.get("geoData")
+    body_data = data.get("bodyData", {})
     original_filename = data.get("filename", "wing.GEO")
 
     if not geo_data:
@@ -103,9 +107,13 @@ def export_geo():
             base = base[:-4]
         download_name = f"{base}_modified.GEO"
         temp_path = temp_folder / f"export_{os.urandom(8).hex()}_{download_name}"
-        rG.writeGEO(str(temp_path), geo_data)
+        xrad = body_data.get("xrad", None) or None
+        rad = body_data.get("rad", None) or None
+        rG.writeGEO(str(temp_path), geo_data, xrad=xrad, rad=rad)
+        buf = io.BytesIO(temp_path.read_bytes())
+        temp_path.unlink(missing_ok=True)
         return send_file(
-            str(temp_path),
+            buf,
             as_attachment=True,
             download_name=download_name,
             mimetype="application/octet-stream",
@@ -436,3 +444,142 @@ def fpcon():
     except Exception:
         logger.exception("Unhandled error in fpcon endpoint")
         return jsonify(error="fpcon processing failed"), 500
+
+
+# ── GEO → MAP (geo2fpcon) ────────────────────────────────────────────────────
+
+def _get_geo2fpcon():
+    """Lazy import of the geo2fpcon helper module."""
+    import importlib.util, types
+    tools = Path(__file__).resolve().parent.parent.parent / "tools" / "geo2fpcon.py"
+    spec = importlib.util.spec_from_file_location("geo2fpcon", str(tools))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@geometry_bp.post("/geo2map")
+@limiter.limit("10 per minute")
+def geo2map():
+    """
+    Generate MAP and FLOW files from in-memory geoData.
+
+    Accepts JSON:
+        geoData      – sections array (as returned by /import)
+        filename     – original GEO filename (for labelling)
+        mach         – Mach number  (default 0.0)
+        incidence    – incidence in degrees  (default 0.0)
+
+    Returns a ZIP with the MAP, FLOW, GEOSUP, and RESPIN files.
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error="JSON body required"), 400
+
+    geo_data = data.get("geoData")
+    if not geo_data or not isinstance(geo_data, list):
+        return jsonify(error="geoData (section list) is required"), 400
+
+    body_data = data.get("bodyData", {})
+    body_radius_override = data.get("bodyRadius", None)
+    filename = data.get("filename", "wing")
+    mach = float(data.get("mach", 0.0))
+    incidence = float(data.get("incidence", 0.0))
+
+    rG = _get_read_geo()
+    g2f = _get_geo2fpcon()
+
+    # Sanitise the filename for use as a directory / label
+    base = filename
+    if base.upper().endswith(".GEO"):
+        base = base[:-4]
+    try:
+        safe_filename(base + ".GEO")
+    except ValueError as exc:
+        return jsonify(error=f"Invalid filename: {exc}"), 400
+
+    temp_folder = current_app.config["TEMP_FOLDER"]
+    work_dir = temp_folder / f"geo2map_{os.urandom(8).hex()}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # 1. Write geoData → temporary GEO file using writeGEO
+        geo_path = work_dir / f"{base}.GEO"
+        xrad = body_data.get("xrad", None) or None
+        rad = body_data.get("rad", None) or None
+        rG.writeGEO(str(geo_path), geo_data, xrad=xrad, rad=rad)
+
+        # 2. Parse with geo2fpcon's own parser (handles body data etc.)
+        parsed = g2f.parse_geo(geo_path)
+        sections = parsed["sections"]
+        planform = g2f.compute_planform(sections)
+
+        # Body radius: user override takes priority, else average from GEO body data
+        if body_radius_override is not None:
+            body_radius = float(body_radius_override)
+        elif parsed["nrad"] > 0 and parsed["rad"]:
+            body_radius = sum(parsed["rad"]) / len(parsed["rad"])
+        else:
+            body_radius = 0.0
+
+        # 3. Extract airfoil .dat files
+        dat_files = g2f.extract_dat_files(sections, work_dir, base)
+
+        # 4. Build EXIN1.DAT
+        exin1_path = work_dir / "EXIN1.DAT"
+        g2f.build_exin1(
+            planform, sections, dat_files,
+            title=base,
+            mach=mach,
+            incidence=incidence,
+            body_radius=body_radius,
+            filepath=exin1_path,
+        )
+
+        # 5. Locate fpcon tools and run
+        tools_folder = current_app.config["TOOLS_FOLDER"]
+        fpcon_dir = tools_folder / "fpcon"
+        if not (fpcon_dir / "fpcon.exe").exists():
+            return jsonify(error="fpcon.exe not found on server"), 500
+
+        g2f.run_fpcon(work_dir, fpcon_dir, timeout=30)
+
+        # 6. Rename outputs
+        if (work_dir / "MAP.DAT").exists():
+            (work_dir / "MAP.DAT").replace(work_dir / f"{base}.MAP")
+        if (work_dir / "GEO.DAT").exists():
+            (work_dir / "GEO.DAT").replace(work_dir / f"{base}_fpcon.GEO")
+
+        # 7. Package into ZIP
+        candidates = [
+            (work_dir / f"{base}.MAP", f"{base}.MAP"),
+            (work_dir / "FLOW.DAT", "FLOW.DAT"),
+            (work_dir / "GEOSUP.DAT", "GEOSUP.DAT"),
+            (work_dir / "RESPIN.DAT", "RESPIN.DAT"),
+        ]
+        missing = [name for path, name in candidates if not path.exists()]
+        if missing:
+            return jsonify(error=f"fpcon did not produce: {', '.join(missing)}"), 500
+
+        zip_path = work_dir / f"{base}_map_files.zip"
+        with zipfile.ZipFile(str(zip_path), "w") as zf:
+            for fpath, arcname in candidates:
+                zf.write(str(fpath), arcname=arcname)
+
+        return send_file(
+            str(zip_path),
+            as_attachment=True,
+            download_name=f"{base}_map_files.zip",
+            mimetype="application/zip",
+        )
+
+    except subprocess.CalledProcessError as exc:
+        logger.exception("fpcon failed in geo2map")
+        return jsonify(error=f"fpcon exited with code {exc.returncode}"), 500
+    except subprocess.TimeoutExpired:
+        return jsonify(error="fpcon timed out"), 500
+    except Exception:
+        logger.exception("Unhandled error in geo2map endpoint")
+        return jsonify(error="geo2map processing failed"), 500
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
