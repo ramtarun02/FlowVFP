@@ -140,8 +140,13 @@ def start_simulation(msg):
             logger.info("Launching engine subprocess: %s", vfp_engine)
             socketio.emit("message", "[VFP] Launching solver engine...", to=sid)
 
+            if getattr(sys, "frozen", False):
+                cmd = [sys.executable, "--run-vfp-engine", tmp_path]
+            else:
+                cmd = [sys.executable, "-u", vfp_engine, tmp_path]
+
             _current_process = subprocess.Popen(
-                [sys.executable, "-u", vfp_engine, tmp_path],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,

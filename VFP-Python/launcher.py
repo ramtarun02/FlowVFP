@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
 import secrets
 import socket
 import sys
@@ -141,7 +142,33 @@ def _resolve_display_host(bind_host: str) -> str:
         return "127.0.0.1"
 
 
+def _run_engine_entry(vfp_payload_path: str) -> int:
+    project_root = _resolve_project_root()
+    modules_dir = project_root / "modules"
+    engine_script = modules_dir / "vfp-engine.py"
+
+    if not engine_script.exists():
+        print(f"Engine script not found: {engine_script}", file=sys.stderr)
+        return 2
+
+    # Ensure vfp_engine dependencies under modules/ are importable.
+    sys.path.insert(0, str(modules_dir))
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = [str(engine_script), vfp_payload_path]
+        runpy.run_path(str(engine_script), run_name="__main__")
+        return 0
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        return code
+    finally:
+        sys.argv = original_argv
+
+
 def main() -> None:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--run-vfp-engine":
+        raise SystemExit(_run_engine_entry(sys.argv[2]))
+
     cfg = _ensure_runtime_config()
 
     project_root = _resolve_project_root()

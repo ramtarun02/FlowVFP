@@ -19,6 +19,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger("vfp-engine")
 
+
+def _resolve_data_root() -> Path:
+    data_dir = os.environ.get("DATA_DIR")
+    if data_dir:
+        return Path(data_dir)
+    project_root = Path(__file__).resolve().parent.parent
+    return project_root / "data"
+
+
+DATA_ROOT = _resolve_data_root()
+SIMULATIONS_ROOT = DATA_ROOT / "Simulations"
+UPLOADS_ROOT = DATA_ROOT / "uploads"
+
 # Local module imports
 from vfp_processing.downwashLLT import compute_downwash_LLT
 from vfp_processing.readVFP import readFLOW, readFORCE, readCP, readWAVEDRG
@@ -303,9 +316,9 @@ def vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileKey):
             logger.debug("Wrote dump file: %s", file_path)
 
 
-def write_dump_files_from_split_json(project_root, upload_id, split_file_name, sim_dir):
+def write_dump_files_from_split_json(upload_id, split_file_name, sim_dir):
     """Write required dump files from a split-json artifact and return the dump base stem."""
-    split_path = Path(project_root) / "data" / "uploads" / upload_id / "split-json" / split_file_name
+    split_path = UPLOADS_ROOT / upload_id / "split-json" / split_file_name
     if not split_path.exists():
         raise FileNotFoundError(f"Split JSON file not found: {split_path}")
 
@@ -378,7 +391,7 @@ def run_vfp_continuation(sim_dir, vfp_data, config_key, dumpFileName):
         dump_base = write_dump_files_from_payload(cont_dump_data, sim_dir)
     elif upload_id and split_file:
         # Case 3: large file uploaded to server – dump files in split-json
-        dump_base = write_dump_files_from_split_json(project_root, upload_id, split_file, sim_dir)
+        dump_base = write_dump_files_from_split_json(upload_id, split_file, sim_dir)
     else:
         # Case 2: small file – full results embedded in vfpData
         vfp_dumpfile_write(sim_dir, vfp_data, config_key, dumpFileName)
@@ -479,7 +492,8 @@ def save_vfp_results(vfp_data, simName, aoa, project_root):
     aoa_val = float(aoa) if aoa is not None else 0.0
     aoa_str = f"{aoa_val:.2f}".replace('.', 'p').replace('-', 'm')
     result_filename = f"{simName}-a{aoa_str}.vfp"
-    outputVfpPath = os.path.join(project_root, "data", "Simulations", result_filename)
+    outputVfpPath = str(SIMULATIONS_ROOT / result_filename)
+    os.makedirs(str(SIMULATIONS_ROOT), exist_ok=True)
     with open(outputVfpPath, "w", encoding="utf-8") as f:
         json.dump(vfp_data, f, indent=4, default=_json_safe_default)
     logger.info("Saved VFP results to %s", outputVfpPath)
@@ -857,7 +871,8 @@ def export_wing_tail_excel(rows, sim_name, project_root):
         for j, (_grp, _clr, _lbl, key) in enumerate(COLS, start=1):
             ws.column_dimensions[get_column_letter(j)].width = KEY_WIDTHS.get(key, 12)
 
-        out_dir  = os.path.join(project_root, "data", "Simulations")
+        out_dir = str(SIMULATIONS_ROOT)
+        os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, f"{sim_name}_AutoRunner_Forces.xlsx")
         wb.save(out_path)
         logger.info("Exported wing+tail combined forces to %s", out_path)
@@ -875,7 +890,7 @@ simName = vfpData["formData"]["simName"]
 logger.info("Loaded VFP case: %s", simName)
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-simBaseDir = os.path.join(project_root, "data", "Simulations", simName)
+simBaseDir = str(SIMULATIONS_ROOT / simName)
 wingSimDir = os.path.join(simBaseDir, "wing")
 tailSimDir = os.path.join(simBaseDir, "tail")
 os.makedirs(wingSimDir, exist_ok=True)
