@@ -59,7 +59,10 @@ export type VfpSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
  * you are ready to start communicating.
  */
 export function createSocket(): VfpSocket {
-  const wsUrl = (import.meta.env.VITE_WS_URL as string) ?? BASE_URL;
+  const isPackaged = import.meta.env.VITE_PACKAGED === 'true';
+  const wsUrl = isPackaged
+    ? window.location.origin
+    : ((import.meta.env.VITE_WS_URL as string) ?? BASE_URL);
 
   // Werkzeug's dev server cannot handle the WebSocket handshake / upgrade —
   // it returns a plain HTTP response, which the browser reports as

@@ -241,6 +241,7 @@ function formatAPA(ref) {
 
 export default function Research() {
     const navigate = useNavigate();
+    const logoSrc = `${import.meta.env.BASE_URL}flowVFP-logo.png`;
 
     return (
         <div
@@ -261,7 +262,7 @@ export default function Research() {
             >
                 <div className="flex items-center gap-2">
                     <img
-                        src="/VFP-2025/flowVFP-logo.png"
+                        src={logoSrc}
                         alt="FlowVFP Logo"
                         className="h-14 w-auto max-h-[100px]"
                         style={{ minWidth: 56, objectFit: "contain" }}
@@ -328,7 +329,7 @@ export default function Research() {
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-4">
                         <div className="bg-white rounded-lg w-14 h-14 flex items-center justify-center shadow">
-                            <img src="/VFP-2025/flowVFP-logo.png" alt="VFP Flow Solver Icon" className="w-12 h-12 object-contain" />
+                            <img src={logoSrc} alt="VFP Flow Solver Icon" className="w-12 h-12 object-contain" />
                         </div>
                         <div>
                             <div className="text-lg font-bold text-white">FlowVFP Solver</div>

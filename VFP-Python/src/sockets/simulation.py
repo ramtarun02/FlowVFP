@@ -57,6 +57,11 @@ def handle_connect():
 def handle_disconnect():
     global _current_process
     logger.info("Client disconnected: sid=%s", request.sid)
+    packaged_mode = os.environ.get("FLOWVFP_PACKAGED", "0").lower() in {"1", "true", "yes"}
+    if packaged_mode:
+        logger.info("Packaged mode disconnect detected; keeping simulation process alive")
+        return
+
     if _current_process and _current_process.poll() is None:
         try:
             _current_process.terminate()

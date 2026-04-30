@@ -678,6 +678,29 @@ pytest tests/test_health.py -v
 
 ## Deployment
 
+## Self-contained Windows Distribution (Additive Build Lane)
+
+This repository includes an additive packaging process for local-network distribution
+without changing existing development and cloud deployment flows.
+
+### Output artifacts
+
+1. Portable runtime folder: VFP-Python/dist/FlowVFP
+2. Installer executable: VFP-Python/dist/installer/FlowVFP-Setup-<version>.exe
+
+### Build command from workspace root
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_flowvfp_dist.ps1
+```
+
+### Runtime behavior
+
+1. Frontend, REST API, and Socket.IO are served behind one LAN URL.
+2. First-run config is generated at %PROGRAMDATA%\FlowVFP\runtime-config.json.
+3. Host and port are configurable in that runtime config.
+4. Python runtime is bundled in the distribution; no host Python is required.
+
 ### Azure App Service
 
 Primary production deployment target. Configured via:

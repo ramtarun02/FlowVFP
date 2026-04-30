@@ -2,6 +2,11 @@ import io from 'socket.io-client';
 
 // Resolve the Socket.IO base URL with sensible overrides
 const getSocketURL = () => {
+    // Packaged mode serves HTTP and Socket.IO on one origin.
+    if (import.meta.env.VITE_PACKAGED === 'true') {
+        return window.location.origin;
+    }
+
     const isDevelopment =
         import.meta.env.DEV ||
         import.meta.env.MODE === 'development';
@@ -35,16 +40,19 @@ const getSocketURL = () => {
 // Create socket connection function
 export const createSocket = (options = {}) => {
     const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+    const isPackaged = import.meta.env.VITE_PACKAGED === 'true';
 
     const defaultOptions = {
-        // In development, Werkzeug's built-in HTTP server cannot handle the
+        // In development (and in packaged desktop mode), Werkzeug/threading
+        // can be unreliable during polling->websocket upgrades.
+        // Polling-only keeps the transport stable for long-running simulations.
         // polling→WebSocket upgrade request: it returns a plain HTTP response
         // instead of a proper 101 Switching Protocols handshake, which the
         // browser reports as "Invalid frame header".  Polling-only avoids the
         // upgrade and works perfectly for our use case.
         // In production (Linux/Azure + eventlet) WebSocket is fine.
-        transports: isDev ? ['polling'] : ['polling', 'websocket'],
-        upgrade: !isDev,
+        transports: (isDev || isPackaged) ? ['polling'] : ['polling', 'websocket'],
+        upgrade: !(isDev || isPackaged),
         rememberUpgrade: false,
         timeout: 20000,
     };

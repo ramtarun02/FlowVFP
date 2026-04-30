@@ -11,6 +11,11 @@
 // ── Base URL ──────────────────────────────────────────────────────────────────
 
 const getBaseUrl = (): string => {
+  // Packaged mode serves frontend and backend on one origin.
+  if (import.meta.env.VITE_PACKAGED === 'true') {
+    return '';
+  }
+
   // Respect explicit VITE env override first
   const explicit = import.meta.env.VITE_API_URL as string | undefined;
   if (explicit) return explicit.replace(/\/$/, '');

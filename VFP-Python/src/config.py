@@ -13,44 +13,51 @@ import platform
 
 def _resolve_paths() -> dict[str, Path]:
     """Resolve filesystem paths based on the runtime environment."""
+    project_override = os.environ.get("PROJECT_ROOT_DIR")
+    data_override = os.environ.get("DATA_DIR")
+    temp_override = os.environ.get("TEMP_DIR")
+
+    def _as_path(value: str | None, default: Path) -> Path:
+        return Path(value) if value else default
+
     site_name = os.environ.get("WEBSITE_SITE_NAME")      # Azure App Service
     render     = os.environ.get("RENDER")                 # Render.com
     docker     = os.path.exists("/app")                   # Docker
 
     if site_name:
-        site_root = Path(os.environ.get("WEBSITE_SITE_ROOT", "/home/site/wwwroot"))
+        site_root = _as_path(project_override, Path(os.environ.get("WEBSITE_SITE_ROOT", "/home/site/wwwroot")))
         home_dir  = Path(os.environ.get("HOME", "/home"))
         return {
             "project_root": site_root,
-            "data_root":    home_dir / "data",
-            "temp_root":    Path("/tmp"),
+            "data_root":    _as_path(data_override, home_dir / "data"),
+            "temp_root":    _as_path(temp_override, Path("/tmp")),
         }
 
     if render:
-        project_root = Path(__file__).parent.parent
+        project_root = _as_path(project_override, Path(__file__).parent.parent)
         return {
             "project_root": project_root,
-            "data_root":    Path("/opt/render/project/data"),
-            "temp_root":    Path("/tmp"),
+            "data_root":    _as_path(data_override, Path("/opt/render/project/data")),
+            "temp_root":    _as_path(temp_override, Path("/tmp")),
         }
 
     if docker:
-        project_root = Path("/app")
+        project_root = _as_path(project_override, Path("/app"))
         return {
             "project_root": project_root,
-            "data_root":    project_root / "data",
-            "temp_root":    project_root / "tmp",
+            "data_root":    _as_path(data_override, project_root / "data"),
+            "temp_root":    _as_path(temp_override, project_root / "tmp"),
         }
 
     # Local / Windows IIS
-    project_root = Path(__file__).parent.parent
+    project_root = _as_path(project_override, Path(__file__).parent.parent)
     if platform.system().lower() == "windows" and Path("C:\\inetpub\\wwwroot").exists():
-        project_root = Path("C:\\inetpub\\wwwroot\\VFP-Python")
+        project_root = _as_path(project_override, Path("C:\\inetpub\\wwwroot\\VFP-Python"))
 
     return {
         "project_root": project_root,
-        "data_root":    project_root / "data",
-        "temp_root":    project_root / "data" / "temp",
+        "data_root":    _as_path(data_override, project_root / "data"),
+        "temp_root":    _as_path(temp_override, _as_path(data_override, project_root / "data") / "temp"),
     }
 
 
@@ -82,8 +89,9 @@ class BaseConfig:
     UPLOAD_FOLDER:     Path = _paths["data_root"] / "uploads"
     SIMULATIONS_FOLDER: Path = _paths["data_root"] / "Simulations"
     TOOLS_FOLDER:      Path = PROJECT_ROOT / "tools"
-    LOGS_FOLDER:       Path = PROJECT_ROOT / "logs"
+    LOGS_FOLDER:       Path = Path(os.environ.get("LOGS_DIR", str(PROJECT_ROOT / "logs")))
     TEMP_FOLDER:       Path = _paths["temp_root"]
+    PACKAGED_MODE:     bool = os.environ.get("FLOWVFP_PACKAGED", "0").lower() in {"1", "true", "yes"}
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     # Include common Vite dev-server ports (Vite increments when the default

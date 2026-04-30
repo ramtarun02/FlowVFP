@@ -64,6 +64,7 @@ export default function App(): React.ReactElement {
                 <Route path="/simulation" element={<SimulationRun />} />
                 <Route path="/post"             element={<PostProcessing />} />
                 <Route path="/post-processing" element={<PostProcessing />} />
+                <Route path="/postprocessing"  element={<PostProcessing />} />
                 <Route path="/research"        element={<Research />} />
                 <Route path="/prowim"     element={<ProWiM />} />
                 <Route path="/post-processing/prowim"          element={<ProWiM />} />

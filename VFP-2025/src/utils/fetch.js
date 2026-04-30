@@ -1,5 +1,10 @@
 // Direct export approach (more reliable than global variables)
 const getBaseURL = () => {
+    // Packaged mode serves frontend and backend on one origin.
+    if (import.meta.env.VITE_PACKAGED === 'true') {
+        return '';
+    }
+
     // In development, use relative URLs so Vite's dev-server proxy forwards
     // requests to the Flask backend — this avoids CORS entirely.
     const isDevelopment =

@@ -7,6 +7,7 @@ Call ``init_app(app)`` inside the application factory.
 from __future__ import annotations
 
 import logging
+import os
 
 from flask_cors import CORS
 from flask_socketio import SocketIO
@@ -26,13 +27,15 @@ def init_extensions(app) -> None:
     """Bind all extensions to the Flask *app* instance."""
     from .config import get_config
     cfg = get_config()
+    packaged_mode = app.config.get("PACKAGED_MODE") or os.environ.get("FLOWVFP_PACKAGED", "0").lower() in {"1", "true", "yes"}
+    origins = "*" if packaged_mode else cfg.CORS_ORIGINS
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS(
         app,
         resources={
-            r"/socket.io/*": {"origins": cfg.CORS_ORIGINS},
-            r"/api/*":        {"origins": cfg.CORS_ORIGINS},
+            r"/socket.io/*": {"origins": origins},
+            r"/api/*":        {"origins": origins},
             r"/health":       {"origins": "*"},
         },
         supports_credentials=False,
@@ -42,7 +45,7 @@ def init_extensions(app) -> None:
     # In debug/dev mode allow any origin so the Vite dev server is never
     # blocked if it picks an unexpected port (3001, 3002 …).  Credentials
     # are not used so "*" is safe here.
-    _sio_origins = "*" if app.debug else cfg.CORS_ORIGINS
+    _sio_origins = "*" if (app.debug or packaged_mode) else cfg.CORS_ORIGINS
     _reduce_engineio_noise(app)
     socketio.init_app(
         app,
