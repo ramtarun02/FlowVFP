@@ -22,6 +22,7 @@ yarn-error.log*
 # ==== Vite / Build output ====
 dist/
 build/
+VFP-Python/frontend_build
 
 # ==== IDE / Editor ====
 .vscode/

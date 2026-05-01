@@ -136,6 +136,12 @@ def start_simulation(msg):
                 else modules_dir
             )
             env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONPATH": new_pypath}
+            # Keep engine output paths aligned with the Flask app config.
+            # In packaged runs, stale or missing DATA_DIR can make the engine
+            # write under a different root (for example _internal/data), while
+            # the socket handler searches app.config["SIMULATIONS_FOLDER"].
+            data_root = Path(simulations_folder).parent
+            env["DATA_DIR"] = str(data_root)
 
             logger.info("Launching engine subprocess: %s", vfp_engine)
             socketio.emit("message", "[VFP] Launching solver engine...", to=sid)
